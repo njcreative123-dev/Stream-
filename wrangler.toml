@@ -1,17 +1,7 @@
-name = "jdub-hub"
+name = "jdub-hub-worker"
 main = "src/workers/index.js"
 compatibility_date = "2024-01-01"
 
-[site]
-bucket = "./public"
-
 [vars]
 ENVIRONMENT = "production"
-
-[[kv_namespaces]]
-binding = "DATA"
-id = ""
-
-[[r2_buckets]]
-binding = "MEDIA"
-bucket_name = "jdub-media"
+WELCOME_MESSAGE = "Welcome to JDUB Hub API"
