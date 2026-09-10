@@ -1,0 +1,17 @@
+name = "jdub-hub"
+main = "src/workers/index.js"
+compatibility_date = "2024-01-01"
+
+[site]
+bucket = "./public"
+
+[vars]
+ENVIRONMENT = "production"
+
+[[kv_namespaces]]
+binding = "DATA"
+id = ""
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "jdub-media"

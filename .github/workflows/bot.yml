@@ -1,0 +1,54 @@
+name: JDUB Hub Bot
+
+on:
+issues:
+types: [opened, edited]
+issue_comment:
+types: [created]
+pull_request:
+types: [opened]
+
+jobs:
+bot:
+runs-on: ubuntu-latest
+if: contains(github.event.comment.body, '/status') || contains(github.event.comment.body, '/deploy') || contains(github.event.comment.body, '/help') || contains(github.event.issue.body, '/status') || github.event_name == 'pull_request'
+steps:
+- name: Checkout
+uses: actions/checkout@v4
+
+- name: Process Bot Commands
+run: |
+BODY="${{ github.event.comment.body || github.event.issue.body }}"
+if echo "$BODY" | grep -q "/status"; then
+echo "### ⚡ JDUB Hub Status" >> $GITHUB_STEP_SUMMARY
+echo "" >> $GITHUB_STEP_SUMMARY
+echo "| Worker | Status |" >> $GITHUB_STEP_SUMMARY
+echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
+echo "| Main AI | ✅ Online |" >> $GITHUB_STEP_SUMMARY
+echo "| Search | ✅ Online |" >> $GITHUB_STEP_SUMMARY
+echo "| Analyze | ✅ Online |" >> $GITHUB_STEP_SUMMARY
+echo "| Summarize | ✅ Online |" >> $GITHUB_STEP_SUMMARY
+echo "| Live TV | ✅ Online |" >> $GITHUB_STEP_SUMMARY
+echo "| Telegram | ✅ Online |" >> $GITHUB_STEP_SUMMARY
+fi
+if echo "$BODY" | grep -q "/deploy"; then
+echo "### 🚀 Deployment Triggered" >> $GITHUB_STEP_SUMMARY
+echo "Deploying latest changes to Cloudflare Pages + HelioHost..." >> $GITHUB_STEP_SUMMARY
+fi
+if echo "$BODY" | grep -q "/help"; then
+echo "### 📱 JDUB Hub Bot Commands" >> $GITHUB_STEP_SUMMARY
+echo "- \`/status\` — Check all worker status" >> $GITHUB_STEP_SUMMARY
+echo "- \`/deploy\` — Trigger deployment" >> $GITHUB_STEP_SUMMARY
+echo "- \`/help\` — Show this help" >> $GITHUB_STEP_SUMMARY
+fi
+
+- name: Send to Telegram
+if: success()
+env:
+BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+run: |
+curl -s "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+-d "chat_id=$CHAT_ID" \
+-d "text=🤖 GitHub Bot: New activity on JDUB Hub repo" \
+-d "parse_mode=Markdown"

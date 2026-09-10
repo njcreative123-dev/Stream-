@@ -1,0 +1,30 @@
+name: Deploy JDUB Hub
+
+on:
+push:
+branches: [main]
+pull_request:
+branches: [main]
+
+jobs:
+deploy:
+runs-on: ubuntu-latest
+steps:
+- name: Checkout
+uses: actions/checkout@v4
+
+- name: Deploy to Cloudflare Pages
+uses: cloudflare/wrangler-action@v3
+with:
+apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+command: pages deploy public --project-name=jdub-hub
+
+- name: Deploy to HelioHost
+env:
+FTP_HOST: johnny.heliohost.org
+FTP_USER: ${{ secrets.HELIOHOST_FTP_USER }}
+FTP_PASS: ${{ secrets.HELIOHOST_FTP_PASS }}
+run: |
+sudo apt-get update && sudo apt-get install -y lftp
+lftp -c "set ssl:verify-certificate no; open -u $FTP_USER,$FTP_PASS $FTP_HOST; mirror -R public/ httpdocs/ --verbose"

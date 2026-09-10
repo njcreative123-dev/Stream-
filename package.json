@@ -1,0 +1,12 @@
+{
+  "name": "jdub-hub",
+  "version": "2.0.0",
+  "description": "JDUB Hub — AI + Telegram + Live TV + GitHub Bot",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "pages": "wrangler pages deploy public",
+    "export": "python3 scripts/export_telegram.py"
+  }
+}
