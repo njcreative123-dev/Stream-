@@ -18,7 +18,7 @@ function json(d, s = 200) {
 
 function html(content) {
   return new Response(content, {
-    headers: { ...CORS, 'Content-Type': 'text/html;charset=utf-8', 'Cache-Control': 'public,max-age=60' },
+    headers: { ...CORS, 'Content-Type': 'text/html;charset=utf-8', 'Cache-Control': 'no-store, no-cache, must-revalidate' },
   });
 }
 
@@ -244,8 +244,8 @@ export default {
 
       // --- Frontend ---
       if (path === '/' || path === '/index.html') return html(INDEX_HTML);
-      if (path === '/css/style.css') return new Response(STYLE_CSS, { headers: { ...CORS, 'Content-Type': 'text/css', 'Cache-Control': 'public,max-age=30' } });
-      if (path === '/js/app.js') return new Response(APP_JS, { headers: { ...CORS, 'Content-Type': 'application/javascript', 'Cache-Control': 'public,max-age=30' } });
+      if (path.startsWith('/css/style.css')) return new Response(STYLE_CSS, { headers: { ...CORS, 'Content-Type': 'text/css', 'Cache-Control': 'no-store, no-cache, must-revalidate' } });
+      if (path.startsWith('/js/app.js')) return new Response(APP_JS, { headers: { ...CORS, 'Content-Type': 'application/javascript', 'Cache-Control': 'no-store, no-cache, must-revalidate' } });
 
       // --- 404 ---
       return json({ error: 'Not Found', endpoints: ['/api/status','/api/auth/login','/api/auth/register','/api/telegram/messages','/api/live-tv','/api/movies','/api/books','/api/search','/api/chat','/api/family-chat','/api/catalog'] }, 404);
@@ -1282,7 +1282,7 @@ const INDEX_HTML = `<!DOCTYPE html>
 <title>NJStream — Live TV, Telegram, Movies, AI</title>
 <meta name="description" content="NJStream — Free Live TV, Movies, Books, Telegram data, AI.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎬</text></svg>">
-<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/style.css?v=8">
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
 </head>
 <body>
@@ -1572,7 +1572,7 @@ const INDEX_HTML = `<!DOCTYPE html>
 </div>
 
 <button class="mobile-toggle" id="mtoggle">☰</button>
-<script src="/js/app.js"></script>
+<script src="/js/app.js?v=8"></script>
 </body>
 </html>
 `;
