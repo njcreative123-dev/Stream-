@@ -1,7 +1,7 @@
 {
   "name": "njsoft-stream",
-  "version": "4.0.0",
-  "description": "NJSoft Stream — Live TV, Movies, Books, Telegram Data, AI — All Free",
+  "version": "5.0.0",
+  "description": "NJStream — Live TV, Movies, Books, Telegram Data, AI — All Free",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",

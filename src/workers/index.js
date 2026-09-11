@@ -1,5 +1,5 @@
 // ============================================================
-// NJSoft Stream — Cloudflare Worker v4.0
+// NJStream — Cloudflare Worker v5.0
 // All-in-One: Live TV, Telegram, AI, Movies, Books
 // ============================================================
 
@@ -258,8 +258,31 @@ async function handleTelegramSync(env) {
 
   try {
     const botToken = env.TG_BOT_TOKEN;
+    // getUpdates and webhook cannot be active at the same time — temporarily remove webhook
+    const webhook = env.WORKER_URL ? env.WORKER_URL + '/api/telegram/webhook' : null;
+    let hadWebhook = false;
+    try {
+      const wh = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
+      const whd = await wh.json();
+      hadWebhook = whd.ok && whd.result && whd.result.url;
+      if (hadWebhook) {
+        await fetch(`https://api.telegram.org/bot${botToken}/deleteWebhook`);
+      }
+    } catch (e) {}
+
     const resp = await fetch(`https://api.telegram.org/bot${botToken}/getUpdates?limit=100&allowed_updates=["message"]`);
     const data = await resp.json();
+
+    // Restore webhook if it existed
+    if (hadWebhook || webhook) {
+      try {
+        await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: webhook, allowed_updates: ['message'] }),
+        });
+      } catch (e) {}
+    }
 
     if (!data.ok) return json({ error: 'Telegram API error', detail: data.description });
 
@@ -546,7 +569,7 @@ async function handleChat(request, env) {
     try {
       const resp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
         messages: [
-          { role: 'system', content: 'NJSoft Stream AI assistant. Reply in Hindi/Hinglish. Be helpful, friendly. We offer: Live TV, Movies (TMDB), Books (Open Library), Telegram group data browsing, AI chat.' },
+          { role: 'system', content: 'NJStream AI assistant. Reply in Hindi/Hinglish. Be helpful, friendly. We offer: Live TV, Movies (TMDB), Books (Open Library), Telegram group data browsing, AI chat.' },
           { role: 'user', content: message },
         ],
         max_tokens: 300,
@@ -558,7 +581,7 @@ async function handleChat(request, env) {
   // Fallback
   return json({
     worker: '🤖 Main AI', icon: '🤖',
-    response: `Bhai "${message}" ke baare mein poocha hai! 🤔\n\nMain NJSoft Stream ka AI hun. Ye cheezein kar sakta hun:\n\n📺 Live TV — Hindi channels free\n🎬 Movies — TMDB se Hindi/English\n📚 Books — Open Library se free\n📱 Telegram — Group data browse\n🔍 Search — Sab kuch ek saath\n\nKuch specific poocho! 😊`,
+    response: `Bhai "${message}" ke baare mein poocha hai! 🤔\n\nMain NJStream ka AI hun. Ye cheezein kar sakta hun:\n\n📺 Live TV — Hindi channels free\n🎬 Movies — TMDB se Hindi/English\n📚 Books — Open Library se free\n📱 Telegram — Group data browse\n🔍 Search — Sab kuch ek saath\n\nKuch specific poocho! 😊`,
   });
 }
 
@@ -634,7 +657,7 @@ async function handleStatus(env) {
     } catch (e) {}
   }
 
-  return json({ status: 'ok', service: 'NJSoft Stream', version: '4.0.0', services });
+  return json({ status: 'ok', service: 'NJStream', version: '5.0.0', services });
 }
 
 // ============================================================
@@ -664,10 +687,11 @@ const INDEX_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NJSoft Stream — Live TV, Movies, Books, AI</title>
-<meta name="description" content="NJSoft Stream — Free Live TV, Movies, Books, Telegram data, AI. Powered by Cloudflare.">
+<title>NJStream — Live TV, Movies, Books, AI</title>
+<meta name="description" content="NJStream — Free Live TV, Movies, Books, Telegram data, AI. Powered by Cloudflare.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎬</text></svg>">
 <link rel="stylesheet" href="/css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
 </head>
 <body>
 
@@ -675,7 +699,7 @@ const INDEX_HTML = `<!DOCTYPE html>
 <div class="loader" id="loader">
   <div class="ld-box">
     <div class="ld-logo">🎬</div>
-    <div class="ld-name">NJSoft<span>Stream</span></div>
+    <div class="ld-name">NJ<span>Stream</span></div>
     <div class="ld-bar"><div class="ld-fill"></div></div>
     <div class="ld-sub">Initializing services...</div>
   </div>
@@ -688,7 +712,7 @@ const INDEX_HTML = `<!DOCTYPE html>
   <nav class="side" id="side">
     <div class="side-head">
       <div class="logo">🎬</div>
-      <div class="brand">NJSoft<span>Stream</span></div>
+      <div class="brand">NJ<span>Stream</span></div>
     </div>
     <div class="nav-list">
       <button class="nav-btn active" data-page="home" onclick="N.go('home')"><span>🏠</span>Home</button>
@@ -709,7 +733,7 @@ const INDEX_HTML = `<!DOCTYPE html>
     <!-- HOME -->
     <section class="page active" id="pg-home">
       <div class="page-head">
-        <h1>🎬 NJSoft Stream</h1>
+        <h1>🎬 NJStream</h1>
         <p>Live TV • Movies • Books • Telegram • AI — Sab Kuch Free</p>
       </div>
       <div class="stats-grid" id="homeStats">
@@ -758,6 +782,10 @@ const INDEX_HTML = `<!DOCTYPE html>
     <section class="page" id="pg-tg">
       <div class="page-head"><h1>📱 Telegram Group Data</h1><p>All messages, photos, videos, files — readable & downloadable</p></div>
       <div class="tg-stats" id="tgStats"></div>
+      <div class="tg-sync-row">
+        <button class="fbtn sync-btn" onclick="N.syncTG(this)">🔄 Sync Group Data</button>
+        <span class="sync-hint" id="tgSyncHint">Group se latest messages fetch karo</span>
+      </div>
       <div class="filter-bar">
         <button class="fbtn active" onclick="N.filterTG('all',this)">All</button>
         <button class="fbtn" onclick="N.filterTG('photo',this)">📷 Photos</button>
@@ -807,7 +835,7 @@ const INDEX_HTML = `<!DOCTYPE html>
       <div class="page-head"><h1>🤖 AI Chat</h1><p>Main AI + Worker AIs</p></div>
       <div class="chat-box">
         <div class="chat-messages" id="chatMsgs">
-          <div class="msg ai"><div class="msg-label">🤖 NJSoft AI</div><p>Welcome bhai! Kuchh bhi poocho — movies, books, live TV, Telegram data, ya koi bhi sawaal 🎉</p>
+          <div class="msg ai"><div class="msg-label">🤖 NJStream AI</div><p>Welcome bhai! Kuchh bhi poocho — movies, books, live TV, Telegram data, ya koi bhi sawaal 🎉</p>
             <div class="quick-asks">
               <button onclick="N.chat('Live TV dikhao')">📺 Live TV</button>
               <button onclick="N.chat('Movies dikhao')">🎬 Movies</button>
@@ -997,7 +1025,53 @@ body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:v
 .empty{text-align:center;padding:40px;color:var(--text2)}
 .empty span{font-size:40px;display:block;margin-bottom:10px}
 
+/* Telegram sync */
+.tg-sync-row{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.sync-btn{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;padding:8px 16px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;transition:.2s}
+.sync-btn:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(34,211,238,.25)}
+.sync-btn:disabled{opacity:.6;cursor:wait;transform:none}
+.sync-hint{font-size:11px;color:var(--text2)}
+
+/* Media cards — poster style */
+.media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.media-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:.2s;cursor:default}
+.media-card:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.media-card img{width:100%;height:200px;object-fit:cover;display:block;background:var(--card2)}
+.media-card .info{padding:10px 12px}
+.media-card .info h4{font-size:13px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.media-card .meta{display:flex;gap:8px;margin-top:6px;font-size:11px;color:var(--text2)}
+
+/* Search results */
+.search-results{display:flex;flex-direction:column;gap:10px}
+.sr-card{display:flex;gap:12px;padding:12px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);transition:.15s}
+.sr-card:hover{border-color:var(--accent)}
+.sr-img{width:64px;height:88px;object-fit:cover;border-radius:8px;flex-shrink:0}
+.sr-info{flex:1;min-width:0}
+.sr-info h3{font-size:14px;font-weight:600;margin-bottom:4px}
+.sr-meta{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text2);flex-wrap:wrap}
+.sr-tag{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}
+.sr-tag.tg{background:rgba(34,211,238,.15);color:var(--accent)}
+.sr-tag.movie{background:rgba(168,85,247,.15);color:var(--accent2)}
+.sr-tag.book{background:rgba(34,197,94,.15);color:var(--green)}
+
+/* Books */
+.book-link{display:inline-block;margin-top:6px;padding:5px 10px;background:linear-gradient(135deg,rgba(34,211,238,.15),rgba(168,85,247,.15));border-radius:8px;font-size:11px;color:var(--accent);text-decoration:none;transition:.15s}
+.book-link:hover{color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2))}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--card2);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:var(--border)}
+
+/* TV player box */
+.tv-player-box{position:relative;width:100%;aspect-ratio:16/9;background:#000;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:8px}
+.tv-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--text2);font-size:14px}
+.tv-placeholder span{font-size:48px}
+#tvVideo{width:100%;height:100%;object-fit:contain}
+
 /* Mobile toggle */
+
 .mobile-toggle{display:none;position:fixed;top:12px;left:12px;z-index:100;padding:8px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:18px;cursor:pointer}
 
 @media(max-width:768px){
@@ -1123,21 +1197,58 @@ N.playTV = function(idx){
   var video = document.getElementById('tvVideo');
   var ph = document.getElementById('tvPlaceholder');
   var bar = document.getElementById('tvBar');
-  video.src = API+'/api/live-tv/stream?url='+encodeURIComponent(ch.url);
+  var status = document.getElementById('tvPlaying');
   video.style.display='block';
   ph.style.display='none';
   bar.style.display='flex';
-  document.getElementById('tvPlaying').textContent=ch.name;
-  video.play().catch(function(e){
-    video.src=ch.url;
-    video.play().catch(function(e2){
-      ph.innerHTML='<span>❌</span><p>Play nahi ho raha</p><p style="font-size:11px;color:var(--text2)">'+e2.message+'</p>';
-      ph.style.display='flex';
-      video.style.display='none';
-      bar.style.display='none';
-    });
-  });
+  status.textContent=ch.name+' — loading...';
+
+  // Stop any existing HLS instance
+  if (window.__hls) { try { window.__hls.destroy(); } catch(e){} window.__hls=null; }
+
+  var src = API+'/api/live-tv/stream?url='+encodeURIComponent(ch.url);
+  var canHls = window.Hls && Hls.isSupported();
+
+  function attachAndPlay(url){
+    video.removeAttribute('src');
+    try { video.load(); } catch(e){}
+    if (canHls) {
+      var hls = new Hls({ maxBufferLength: 30, enableWorker: true });
+      window.__hls = hls;
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function(){ video.play().catch(function(){}); status.textContent=ch.name+' — LIVE'; });
+      hls.on(Hls.Events.ERROR, function(evt, data){
+        if (data.fatal){
+          if (data.type==='networkError') { try { hls.startLoad(); } catch(e){} }
+          else if (data.type==='mediaError') { try { hls.recoverMediaError(); } catch(e){} }
+          else { showTVError(ch.name, 'Stream error'); }
+        }
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url;
+      video.play().catch(function(){ showTVError(ch.name,'Play failed'); });
+      video.onplaying = function(){ status.textContent=ch.name+' — LIVE'; };
+    } else {
+      video.src = url;
+      video.play().catch(function(){ showTVError(ch.name,'Play failed'); });
+      video.onplaying = function(){ status.textContent=ch.name+' — LIVE'; };
+    }
+  }
+
+  attachAndPlay(src);
 };
+
+function showTVError(name, err){
+  var ph = document.getElementById('tvPlaceholder');
+  var video = document.getElementById('tvVideo');
+  var bar = document.getElementById('tvBar');
+  ph.innerHTML='<span>❌</span><p>'+esc(name)+' — play nahi ho raha</p><p style="font-size:11px;color:var(--text2)">'+esc(err)+'. Koi aur channel try karo.</p>';
+  ph.style.display='flex';
+  video.style.display='none';
+  bar.style.display='none';
+  if (window.__hls) { try { window.__hls.destroy(); } catch(e){} window.__hls=null; }
+}
 
 N.tvFilterGroup = function(group,btn){
   tvCurrentGroup=group;
@@ -1178,6 +1289,29 @@ N.loadTG = async function(){
   }catch(e){
     document.getElementById('tgMessages').innerHTML='<div class="empty"><span>📱</span>Telegram data load nahi ho paya. Bot ko group me add karo aur /api/telegram/sync call karo.</div>';
   }
+};
+
+N.syncTG = async function(btn){
+  if (btn){ btn.disabled=true; btn.textContent='🔄 Syncing...'; }
+  var hint = document.getElementById('tgSyncHint');
+  if (hint) hint.textContent = 'Group se messages fetch ho rahe hain...';
+  try{
+    var r = await fetch(API+'/api/telegram/sync',{method:'POST'});
+    var d = await r.json();
+    if (hint){
+      if (d.ok !== false && !d.error){
+        hint.textContent = '✅ Sync complete — '+(d.processed||0)+' messages processed';
+      } else if (d.error){
+        hint.textContent = '⚠️ '+(d.error||'Sync failed')+(d.detail?' — '+d.detail:'');
+      } else {
+        hint.textContent = '✅ Sync done';
+      }
+    }
+    N.loadTG();
+  }catch(e){
+    if (hint) hint.textContent='⚠️ Sync failed: '+e.message;
+  }
+  if (btn){ btn.disabled=false; btn.textContent='🔄 Sync Group Data'; }
 };
 
 N.renderTG = function(msgs){
