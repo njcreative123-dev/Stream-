@@ -2271,7 +2271,7 @@ async function loadHome(){
           var hasVid = m.video ? ' 🎥' : '';
           var hasDoc = m.document ? ' 📄' : '';
           var hasPhoto = m.photo ? ' 📷' : '';
-          var txt = (m.text || '').replace(/\n/g, ' ').substring(0, 100);
+          var txt = (m.text || '').split('\\n').join(' ').substring(0, 100);
           if (!txt) txt = (m.video ? 'Video file' : '') + (m.document ? 'Document: '+(m.document.name||'file') : '') + (m.photo ? 'Photo' : '');
           tg += '<div class="tg-preview-card" data-nav="tg">';
           tg += '<div class="tgp-icon">'+(m.video?String.fromCodePoint(0x1F3AC):m.photo?String.fromCodePoint(0x1F5BC,0xFE0F):m.document?String.fromCodePoint(0x1F4C4):String.fromCodePoint(0x1F4AC))+'</div>';
@@ -2624,7 +2624,7 @@ async function loadSearchTrending(){
       if (msgs.length){
         var h = '<div class="sr-card"><div class="sr-info"><h3 style="color:var(--accent)">🔥 Trending Telegram Content</h3><p style="font-size:12px;color:var(--text2);margin-top:4px">Type karke search karo — ya ye dekho:</p></div></div>';
         msgs.forEach(function(m){
-          var txt = (m.text || '').replace(/\n/g, ' ').substring(0, 80);
+          var txt = (m.text || '').split('\\n').join(' ').substring(0, 80);
           if (!txt) txt = m.video ? '🎥 Video' : m.document ? '📄 '+(m.document.name||'Document') : m.photo ? '📷 Photo' : 'Message';
           h += '<div class="sr-card" data-nav="tg"><div class="sr-info"><h3>'+esc(txt)+'</h3><div class="sr-meta"><span class="sr-tag tg">'+String.fromCodePoint(0x1F4F1)+' Telegram</span><span>@'+esc(m.from||'unknown')+'</span>'+(m.video?'<span>🎥 Video</span>':'')+(m.document?'<span>📄 Doc</span>':'')+'</div></div></div>';
         });
