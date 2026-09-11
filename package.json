@@ -1,18 +1,12 @@
 {
-  "name": "jdub-hub",
-  "version": "3.0.0",
-  "description": "JDUB Hub — Movies, Books, AI, Live TV — Free Tier Architecture",
+  "name": "njsoft-stream",
+  "version": "4.0.0",
+  "description": "NJSoft Stream — Live TV, Movies, Books, Telegram Data, AI — All Free",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "deploy:worker": "wrangler deploy",
-    "deploy:pages": "wrangler pages deploy public --project-name=jdub-hub",
-    "search": "curl -s 'https://jdub-deploy.njcreative123.workers.dev/api/search?q=batman'",
-    "movies": "curl -s 'https://jdub-deploy.njcreative123.workers.dev/api/movies?type=popular'",
-    "books": "curl -s 'https://jdub-deploy.njcreative123.workers.dev/api/books?q=famous'",
-    "health": "curl -s 'https://jdub-deploy.njcreative123.workers.dev/api/health'",
-    "status": "curl -s 'https://jdub-deploy.njcreative123.workers.dev/api/status'"
+    "deploy": "wrangler deploy",
+    "status": "curl -s https://njsoft-stream.njcreative123.workers.dev/api/status"
   },
-  "keywords": ["cloudflare-workers", "tmdb", "openlibrary", "telegram", "free-stack"],
   "author": "njcreative123"
 }

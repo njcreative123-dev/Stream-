@@ -1,17 +1,20 @@
-name = "jdub-hub-worker"
+name = "njsoft-stream"
 main = "src/workers/index.js"
-compatibility_date = "2024-01-01"
-account_id = "18998bfa1e33fe431b59dd938db7907c"
+compatibility_date = "2024-09-01"
 
 [vars]
 ENVIRONMENT = "production"
-WELCOME_MESSAGE = "JDUB Hub v3.0 — Movies, Books, AI, Live TV"
+WELCOME_MESSAGE = "NJSoft Stream v4.0 — Live TV, Movies, Books, Telegram, AI"
+TG_CHAT_ID = "-1002514429549"
 
 [[d1_databases]]
 binding = "CATALOG_DB"
-database_name = "jdub-catalog"
+database_name = "njsoft-catalog"
 database_id = "a8cf8fd3-fa70-42ed-b83c-83dc326909a9"
 
 [[kv_namespaces]]
-binding = "CACHE"
+binding = "KV_STORE"
 id = "e1889fcdeca94f2abe934162ade34db8"
+
+[triggers]
+crons = ["0 */6 * * *"]

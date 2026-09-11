@@ -1,1078 +1,446 @@
 // ============================================================
-// JDUB Hub - Cloudflare Worker (v3.1 — Live TV Added)
-// Free services integrated:
-//   - Workers Router
-//   - KV Cache
-//   - D1 SQLite (catalog)
-//   - Cron Trigger (daily sync)
-//   - TMDB API (movies)
-//   - Open Library API (books)
-//   - Live TV (free IPTV — Hindi priority)
-//   - Telegram API (webhook)
-//   - Analytics Engine
+// NJSoft Stream — Cloudflare Worker v4.0
+// All-in-One: Live TV, Telegram, AI, Movies, Books
 // ============================================================
 
-const corsHeaders = {
+const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Cache-Control': 'public, max-age=300',
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type,Authorization',
 };
 
-
-// ============================================================
-// STATIC ASSETS — Frontend served from Worker
-// ============================================================
-const INDEX_HTML = `<!DOCTYPE html>
-<html lang="hi">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JDUB Hub — Movies, Books, AI</title>
-<meta name="description" content="JDUB Hub — Free movies, books, AI chat, live TV. Powered by Cloudflare + GitHub.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
-<link rel="stylesheet" href="css/style.css">
-</head>
-<body>
-<div class="loader" id="loader">
-  <div class="ld-inner">
-    <div class="ld-icon">⚡</div>
-    <div class="ld-text">JDUB HUB</div>
-    <div class="ld-bar"><div class="ld-fill"></div></div>
-    <div class="ld-sub">Initializing 10+ free services...</div>
-  </div>
-</div>
-
-<div class="app" id="app">
-  <!-- Sidebar -->
-  <nav class="side" id="side">
-    <div class="side-h">
-      <div class="slogo">⚡</div>
-      <div class="sbrand">JDUB<span>HUB</span></div>
-    </div>
-    <div class="nav">
-      <button class="nb on" data-p="dash" onclick="go('dash')"><span class="ni">🏠</span>Dashboard</button>
-      <button class="nb" data-p="search" onclick="go('search')"><span class="ni">🔍</span>Search</button>
-      <button class="nb" data-p="movies" onclick="go('movies')"><span class="ni">🎬</span>Movies</button>
-      <button class="nb" data-p="books" onclick="go('books')"><span class="ni">📚</span>Books</button>
-      <button class="nb" data-p="catalog" onclick="go('catalog')"><span class="ni">📁</span>Catalog</button>
-      <button class="nb" data-p="chat" onclick="go('chat')"><span class="ni">🤖</span>AI Chat</button>
-      <button class="nb" data-p="tv" onclick="go('tv')"><span class="ni">📺</span>Live TV</button>
-      <button class="nb" data-p="wk" onclick="go('wk')"><span class="ni">⚙️</span>Workers</button>
-    </div>
-    <div class="side-f"><div class="dot"></div>All Systems Online</div>
-  </nav>
-
-  <main class="main">
-    <!-- PAGE: DASHBOARD -->
-    <div class="pg on" id="p-dash">
-      <div class="ph"><h1>⚡ Command Center</h1><p class="ps">Everything connected, everything live</p></div>
-      <div class="gr">
-        <div class="cd"><div class="ch2"><span>🤖</span><h3>AI Workers</h3></div><div class="wg"><span class="wp"><i class="dot"></i>Main AI</span><span class="wp"><i class="dot"></i>Search</span><span class="wp"><i class="dot"></i>Analyze</span><span class="wp"><i class="dot"></i>Summarize</span><span class="wp"><i class="dot"></i>Live TV</span><span class="wp"><i class="dot"></i>Telegram</span></div></div>
-        <div class="cd"><div class="ch2"><span>📊</span><h3>Quick Stats</h3></div><div class="sg"><div class="st"><div class="sn" id="sUp">0m</div><div class="sl">Uptime</div></div><div class="st"><div class="sn">6</div><div class="sl">Workers</div></div><div class="st"><div class="sn" id="sMsg">0</div><div class="sl">Messages</div></div><div class="st"><div class="sn" id="sMed">0</div><div class="sl">Content</div></div></div></div>
-      </div>
-      <div class="quick-links">
-        <button class="ql" onclick="go('search')">🔍 Search Content</button>
-        <button class="ql" onclick="go('movies')">🎬 Movies</button>
-        <button class="ql" onclick="go('books')">📚 Books</button>
-        <button class="ql" onclick="go('catalog')">📁 My Catalog</button>
-        <button class="ql" onclick="go('chat')">🤖 AI Chat</button>
-        <button class="ql" onclick="go('tv')">📺 Live TV</button>
-      </div>
-    </div>
-
-    <!-- PAGE: SEARCH -->
-    <div class="pg" id="p-search">
-      <div class="ph"><h1>🔍 Search Everything</h1><p class="ps">Movies + Books + Catalog — ek saath</p></div>
-      <div class="search-wrap">
-        <input type="text" id="searchInput" class="search-input" placeholder="Movie, book, series search karo..." onkeydown="if(event.key==='Enter')searchContent()">
-        <button class="search-btn" onclick="searchContent()">🔍 Search</button>
-      </div>
-      <div id="searchResults" class="search-results"></div>
-    </div>
-
-    <!-- PAGE: MOVIES -->
-    <div class="pg" id="p-movies">
-      <div class="ph"><h1>🎬 Movies</h1><p class="ps">TMDB se live data</p></div>
-      <div class="tab-row">
-        <button class="tabb on" onclick="switchMovieTab(this,'popular')">🔥 Popular</button>
-        <button class="tabb" onclick="switchMovieTab(this,'top_rated')">⭐ Top Rated</button>
-        <button class="tabb" onclick="switchMovieTab(this,'now_playing')">🎥 Now Playing</button>
-        <button class="tabb" onclick="switchMovieTab(this,'upcoming')">🗓️ Upcoming</button>
-      </div>
-      <div id="moviesGrid" class="grid-movies"><div class="loading">Loading movies...</div></div>
-    </div>
-
-    <!-- PAGE: BOOKS -->
-    <div class="pg" id="p-books">
-      <div class="ph"><h1>📚 Books</h1><p class="ps">Open Library — free reading</p></div>
-      <div class="search-wrap small">
-        <input type="text" id="bookInput" class="search-input" placeholder="Book search..." onkeydown="if(event.key==='Enter')loadBooks(document.getElementById('bookInput').value)">
-        <button class="search-btn" onclick="loadBooks(document.getElementById('bookInput').value)">📚 Search</button>
-      </div>
-      <div class="tab-row">
-        <button class="tabb on" onclick="switchBookTab(this,'famous')">📖 Famous</button>
-        <button class="tabb" onclick="switchBookTab(this,'science')">🔬 Science</button>
-        <button class="tabb" onclick="switchBookTab(this,'Hinduism')">🕉️ Hinduism</button>
-      </div>
-      <div id="booksGrid" class="grid-books"><div class="loading">Loading books...</div></div>
-    </div>
-
-    <!-- PAGE: CATALOG -->
-    <div class="pg" id="p-catalog">
-      <div class="ph"><h1>📁 My Catalog</h1><p class="ps">D1 database — apna content</p></div>
-      <div class="add-card">
-        <input type="text" id="catTitle" class="search-input" placeholder="Title...">
-        <select id="catType" class="cat-select">
-          <option value="movie">🎬 Movie</option>
-          <option value="book">📚 Book</option>
-          <option value="series">📺 Series</option>
-        </select>
-        <input type="text" id="catDesc" class="search-input" placeholder="Description...">
-        <button class="search-btn" onclick="addToCatalog()">➕ Add</button>
-      </div>
-      <div id="catalogList" class="search-results"><div class="loading">Loading catalog...</div></div>
-    </div>
-
-    <!-- PAGE: CHAT -->
-    <div class="pg" id="p-chat">
-      <div class="ph"><h1>🤖 AI Chat Hub</h1><p class="ps">Main AI + 6 Worker AIs</p></div>
-      <div class="cb2">
-        <div class="cms" id="cMsgs">
-          <div class="cm ai"><span class="cb">⚡ MAIN AI</span><p>Welcome! Movie/book search ya koi bhi sawaal poocho 🎉</p>
-            <div class="caps">
-              <div class="cap" onclick="chat('Search karo')">🔍 Search</div>
-              <div class="cap" onclick="chat('Analyze karo')">📊 Analyze</div>
-              <div class="cap" onclick="chat('Summary banao')">📝 Summary</div>
-              <div class="cap" onclick="chat('Live TV dikhao')">📺 Live TV</div>
-              <div class="cap" onclick="chat('Status batao')">⚙️ Status</div>
-            </div>
-          </div>
-        </div>
-        <div class="cin"><input class="ci" id="cIn" placeholder="Message type karo..." onkeydown="if(event.key==='Enter'){chat(document.getElementById('cIn').value);document.getElementById('cIn').value='';}"><button class="sn2" onclick="chat(document.getElementById('cIn').value);document.getElementById('cIn').value='';">Send ⚡</button></div>
-      </div>
-    </div>
-
-    </div>
-
-    <!-- PAGE: LIVE TV -->
-    <div class="pg" id="p-tv">
-      <div class="ph"><h1>📺 Live TV</h1><p class="ps">Free IPTV — Hindi priority | <span id="tvCount">0</span> channels</p></div>
-      
-      <!-- Player -->
-      <div class="tv-player" id="tvPlayer">
-        <div class="tv-player-inner" id="tvPlayerInner">
-          <div class="tv-placeholder" id="tvPlaceholder">
-            <span style="font-size:64px">📺</span>
-            <p>Channel select karo</p>
-          </div>
-          <video id="tvVideo" controls autoplay style="width:100%;height:100%;display:none;border-radius:12px"></video>
-        </div>
-        <div class="tv-now-playing" id="tvNowPlaying" style="display:none">
-          <span class="tv-live-badge">● LIVE</span>
-          <span id="tvChannelName">—</span>
-        </div>
-      </div>
-
-      <!-- Group filter -->
-      <div class="tv-groups" id="tvGroups"></div>
-
-      <!-- Search -->
-      <div class="search-wrap small">
-        <input type="text" id="tvSearch" class="search-input" placeholder="Channel search karo..." oninput="filterTVChannels()">
-      </div>
-
-      <!-- Channel list -->
-      <div class="tv-channels" id="tvChannels">
-        <div class="loading">📺 Loading channels...</div>
-      </div>
-    </div>
-
-
-    <!-- PAGE: WORKERS STATUS -->
-    <div class="pg" id="p-wk">
-      <div class="ph"><h1>⚙️ Services Status</h1><p class="ps">10+ free services live</p></div>
-      <div class="wgrid">
-        <div class="wi"><div class="wic">⚡</div><div class="winf"><h3>Main AI Orchestrator</h3><p>Worker routing</p><div class="wst"><span class="badge on">● Online</span></div></div></div>
-        <div class="wi"><div class="wic">🔍</div><div class="winf"><h3>Search Worker</h3><p>TMDB + Open Library + D1</p><div class="wst"><span class="badge on">● Online</span></div></div></div>
-        <div class="wi"><div class="wic">📚</div><div class="winf"><h3>Books API</h3><p>Open Library (free)</p><div class="wst"><span class="badge on">● Online</span></div></div></div>
-        <div class="wi"><div class="wic">🎬</div><div class="winf"><h3>Movies API</h3><p>TMDB (free tier)</p><div class="wst"><span class="badge on">● Online</span></div></div></div>
-        <div class="wi"><div class="wic">🗄️</div><div class="winf"><h3>D1 Database</h3><p>SQLite — catalog</p><div class="wst"><span class="badge on">● Ready</span></div></div></div>
-        <div class="wi"><div class="wic">⚡</div><div class="winf"><h3>KV Cache</h3><p>100K reads/day free</p><div class="wst"><span class="badge on">● Ready</span></div></div></div>
-        <div class="wi"><div class="wic">📦</div><div class="winf"><h3>R2 Storage</h3><p>10GB free</p><div class="wst"><span class="badge on">● Ready</span></div></div></div>
-        <div class="wi"><div class="wic">⏰</div><div class="winf"><h3>Cron Sync</h3><p>Daily data update</p><div class="wst"><span class="badge on">● Scheduled</span></div></div></div>
-        <div class="wi"><div class="wic">📱</div><div class="winf"><h3>Telegram Bot</h3><p>Webhook commands</p><div class="wst"><span class="badge on">● Online</span></div></div></div>
-        <div class="wi"><div class="wic">🔒</div><div class="winf"><h3>GitHub Security</h3><p>CodeQL + Dependabot</p><div class="wst"><span class="badge on">● Active</span></div></div></div>
-        <div class="wi"><div class="wic">📈</div><div class="winf"><h3>Analytics</h3><p>Cloudflare Web Analytics</p><div class="wst"><span class="badge on">● Free</span></div></div></div>
-        <div class="wi"><div class="wic">🌐</div><div class="winf"><h3>CDN</h3><p>Cloudflare Network</p><div class="wst"><span class="badge on">● 300+ cities</span></div></div></div>
-      </div>
-    </div>
-  </main>
-</div>
-
-<script src="js/app.js"></script>
-</body>
-</html>
-`;
-const STYLE_CSS = `/* JDUB Hub — Complete Styles */
-:root{--bg:#0a0a0f;--card:#12121a;--card2:#1a1a25;--border:#2a2a35;--accent:#00d4ff;--accent2:#7c3aed;--green:#22c55e;--red:#ef4444;--yellow:#eab308;--text:#e4e4e7;--text2:#a1a1aa;--radius:12px;--shadow:0 4px 24px rgba(0,0,0,.4)}
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}
-
-/* Loader */
-.loader{position:fixed;inset:0;z-index:999;background:var(--bg);display:flex;align-items:center;justify-content:center;transition:opacity .5s}
-.loader.hid{opacity:0;pointer-events:none}
-.ld-inner{text-align:center}
-.ld-icon{font-size:64px;animation:pulse 1s infinite}
-.ld-text{font-size:28px;font-weight:700;margin:12px 0;color:var(--accent)}
-.ld-bar{width:200px;height:4px;background:var(--border);border-radius:4px;overflow:hidden;margin:12px auto}
-.ld-fill{width:0%;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));animation:fillBar 2s forwards}
-.ld-sub{color:var(--text2);font-size:13px}
-@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
-@keyframes fillBar{0%{width:0}100%{width:100%}}
-
-/* App layout */
-.app{display:flex;min-height:100vh;opacity:0;transition:opacity .5s}
-.app.vis{opacity:1}
-
-/* Sidebar */
-.side{width:240px;background:var(--card);border-right:1px solid var(--border);padding:16px;display:flex;flex-direction:column;position:fixed;top:0;bottom:0;z-index:10}
-.side-h{display:flex;align-items:center;gap:10px;margin-bottom:20px}
-.slogo{font-size:28px}
-.sbrand{font-size:20px;font-weight:700;color:var(--accent)}
-.sbrand span{color:var(--accent2)}
-.nav{flex:1;display:flex;flex-direction:column;gap:4px}
-.nb{display:flex;align-items:center;gap:8px;width:100%;padding:10px 14px;border:none;border-radius:8px;background:transparent;color:var(--text2);font-size:14px;cursor:pointer;text-align:left;transition:all .2s}
-.nb:hover{background:var(--card2);color:var(--text)}
-.nb.on{background:linear-gradient(135deg,rgba(0,212,255,.12),rgba(124,58,237,.12));color:var(--accent);font-weight:600}
-.ni{font-size:16px;width:20px;text-align:center}
-.side-f{display:flex;align-items:center;gap:8px;padding:12px;background:var(--card2);border-radius:8px;font-size:12px;color:var(--green)}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:blink 2s infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
-
-/* Main */
-.main{margin-left:240px;flex:1;padding:24px}
-.pg{display:none}
-.pg.on{display:block}
-
-/* Page header */
-.ph{margin-bottom:24px}
-.ph h1{font-size:28px;font-weight:700}
-.ps{color:var(--text2);margin-top:4px;font-size:14px}
-
-/* Grid cards */
-.gr{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:24px}
-.cd{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
-.ch2{display:flex;align-items:center;gap:10px;margin-bottom:16px}
-.ch2 span{font-size:24px}
-.ch2 h3{font-size:16px;font-weight:600}
-.wg{display:flex;flex-wrap:wrap;gap:8px}
-.wp{display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--card2);border-radius:20px;font-size:12px;color:var(--text2)}
-.sg{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-.st{text-align:center;padding:12px;background:var(--card2);border-radius:8px}
-.sn{font-size:22px;font-weight:700;color:var(--accent)}
-.sl{font-size:12px;color:var(--text2);margin-top:4px}
-
-/* Quick links */
-.quick-links{display:flex;flex-wrap:wrap;gap:10px}
-.ql{padding:10px 20px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;cursor:pointer;transition:all .2s}
-.ql:hover{border-color:var(--accent);transform:translateY(-2px)}
-
-/* Search */
-.search-wrap{display:flex;gap:10px;margin-bottom:20px}
-.search-wrap.small{max-width:500px}
-.search-input{flex:1;padding:12px 16px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none}
-.search-input:focus{border-color:var(--accent)}
-.search-btn{padding:12px 20px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;white-space:nowrap}
-.search-btn:hover{opacity:.9;transform:translateY(-1px)}
-.search-results{display:flex;flex-direction:column;gap:12px}
-.sr-card{display:flex;gap:16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;transition:all .2s}
-.sr-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow)}
-.sr-img{width:80px;height:120px;object-fit:cover;border-radius:8px}
-.sr-info{flex:1}
-.sr-info h3{font-size:16px;font-weight:600;margin-bottom:6px}
-.sr-meta{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
-.badge-t{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600}
-.badge-t.tmdb{background:rgba(0,212,255,.15);color:var(--accent)}
-.badge-t.openlibrary{background:rgba(34,197,94,.15);color:var(--green)}
-.badge-t.catalog{background:rgba(124,58,237,.15);color:var(--accent2)}
-.badge-t.movie{background:rgba(239,68,68,.15);color:var(--red)}
-.badge-t.book{background:rgba(34,197,94,.15);color:var(--green)}
-.badge-t.tv{background:rgba(234,179,8,.15);color:var(--yellow)}
-.badge-t.series{background:rgba(124,58,237,.15);color:var(--accent2)}
-.sr-overview{font-size:13px;color:var(--text2);line-height:1.5}
-.sr-link{display:inline-block;margin-top:8px;padding:4px 12px;background:var(--card2);border-radius:6px;color:var(--accent);font-size:13px;text-decoration:none}
-.sr-link:hover{background:rgba(0,212,255,.1)}
-.sr-count{padding:8px 0;color:var(--text2);font-size:13px}
-.sr-empty,.sr-error{padding:40px;text-align:center;color:var(--text2);font-size:14px}
-.loading{padding:40px;text-align:center;color:var(--accent);font-size:14px;animation:pulse 1s infinite}
-
-/* Tabs */
-.tab-row{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-.tabb{padding:8px 16px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:13px;cursor:pointer;transition:all .2s}
-.tabb:hover,.tabb.on{border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,.08)}
-
-/* Movie grid */
-.grid-movies,.grid-books{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px}
-.movie-card,.book-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:all .2s;cursor:pointer}
-.movie-card:hover,.book-card:hover{border-color:var(--accent);transform:translateY(-4px);box-shadow:var(--shadow)}
-.movie-poster,.book-cover{width:100%;height:240px;object-fit:cover}
-.movie-info,.book-info{padding:12px}
-.movie-info h4,.book-info h4{font-size:14px;font-weight:600;margin-bottom:4px}
-.movie-info p,.book-info p{font-size:12px;color:var(--text2)}
-.movie-meta{display:flex;gap:8px;font-size:12px;color:var(--text2)}
-
-/* Catalog add form */
-.add-card{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
-.cat-select{padding:12px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px}
-.del-btn{margin-top:8px;padding:4px 10px;background:rgba(239,68,68,.15);border:none;border-radius:6px;color:var(--red);cursor:pointer;font-size:12px}
-
-/* Chat */
-.cb2{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);display:flex;flex-direction:column;height:calc(100vh - 160px)}
-.cms{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
-.cm{max-width:80%;padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.6}
-.cm.ai{background:var(--card2);border:1px solid var(--border);align-self:flex-start}
-.cm.user{background:linear-gradient(135deg,rgba(0,212,255,.2),rgba(124,58,237,.2));align-self:flex-end}
-.cb{display:block;font-size:11px;font-weight:600;color:var(--accent);margin-bottom:6px}
-.caps{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-.cap{padding:6px 12px;background:var(--bg);border:1px solid var(--border);border-radius:16px;font-size:12px;cursor:pointer;transition:all .2s}
-.cap:hover{border-color:var(--accent);color:var(--accent)}
-.cin{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border)}
-.ci{flex:1;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none}
-.ci:focus{border-color:var(--accent)}
-.sn2{padding:10px 16px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer}
-
-/* TV */
-.tvm{margin-bottom:20px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);height:300px;display:flex;align-items:center;justify-content:center}
-.tvo{width:80px;height:80px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:32px}
-.cg{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
-.ch3{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;cursor:pointer;transition:all .2s}
-.ch3:hover{border-color:var(--accent);transform:translateY(-2px)}
-.ci2{font-size:32px;margin-bottom:8px}
-.cn{font-size:14px;font-weight:600}
-.cs{font-size:12px;color:var(--green);margin-top:4px}
-
-/* Workers grid */
-.wgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
-.wi{display:flex;gap:16px;padding:16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius)}
-.wic{font-size:28px;width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:var(--card2);border-radius:12px}
-.winf{flex:1}
-.winf h3{font-size:14px;font-weight:600;margin-bottom:2px}
-.winf p{font-size:12px;color:var(--text2);margin-bottom:6px}
-.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600}
-.badge.on{background:rgba(34,197,94,.15);color:var(--green)}
-
-/* Mobile */
-@media(max-width:768px){
-  .side{transform:translateX(-100%);transition:transform .3s}
-  .main{margin-left:0}
-  .gr{grid-template-columns:1fr}
-  .grid-movies,.grid-books{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
-}
-
-/* LIVE TV */
-.tv-player{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:16px}
-.tv-player-inner{width:100%;height:400px;display:flex;align-items:center;justify-content:center;background:#000;position:relative}
-.tv-placeholder{display:flex;flex-direction:column;align-items:center;gap:12px;color:var(--text2)}
-.tv-now-playing{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--card2);border-top:1px solid var(--border)}
-.tv-live-badge{color:var(--red);font-weight:700;font-size:13px;animation:blink 1.5s infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
-.tv-groups{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
-.tv-gf{padding:6px 14px;border:1px solid var(--border);border-radius:20px;background:var(--card);color:var(--text2);font-size:12px;cursor:pointer;transition:all .2s}
-.tv-gf:hover{border-color:var(--accent);color:var(--text)}
-.tv-gf.on{background:var(--accent);color:#000;border-color:var(--accent);font-weight:600}
-.tv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
-.tv-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:10px}
-.tv-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,212,255,.1)}
-.tv-logo{width:48px;height:48px;border-radius:8px;object-fit:cover;background:var(--card2)}
-.tv-logo-placeholder{width:48px;height:48px;border-radius:8px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:24px}
-.tv-card-info{flex:1;min-width:0}
-.tv-card-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tv-card-group{font-size:11px;color:var(--text2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tv-hindi-badge{font-size:11px;margin-top:4px;display:inline-block}
-`;
-const APP_JS = `(function(){
-'use strict';
-
-// ============================================================
-// JDUB Hub — Enhanced Frontend
-// All free services connected
-// ============================================================
-const API = window.location.hostname.includes('workers.dev')
-  ? '' // same origin
-  : 'https://jdub-deploy.njcreative123.workers.dev'; // Cloudflare Worker URL
-
-let tgData = [];
-let startTime = Date.now();
-
-// Loader
-window.addEventListener('load', function(){
-  setTimeout(function(){
-    document.getElementById('loader').classList.add('hid');
-    document.getElementById('app').classList.add('vis');
-    startUptime();
-    loadTrending();
-  }, 2500);
-});
-
-// Navigation
-window.go = function(p) {
-  document.querySelectorAll('.pg').forEach(function(e){ e.classList.remove('on') });
-  document.querySelectorAll('.nb').forEach(function(e){ e.classList.remove('on') });
-  var pg = document.getElementById('p-' + p);
-  if (pg) pg.classList.add('on');
-  var btn = document.querySelector('[data-p="' + p + '"]');
-  if (btn) btn.classList.add('on');
-  // Load data per page
-  if (p === 'search') initSearch();
-  if (p === 'catalog') loadCatalog();
-};
-
-// Uptime counter
-function startUptime() {
-  setInterval(function() {
-    var d = Date.now() - startTime;
-    var m = Math.floor(d / 60000);
-    var h = Math.floor(m / 60);
-    if (h > 0) document.getElementById('sUp').textContent = h + 'h' + (m % 60) + 'm';
-    else document.getElementById('sUp').textContent = m + 'm';
-  }, 10000);
-}
-
-// ============================================================
-// SEARCH — combined search (movies + books + catalog)
-// ============================================================
-function initSearch() {
-  var q = document.getElementById('searchInput');
-  if (q) q.focus();
-}
-
-window.searchContent = async function() {
-  var q = document.getElementById('searchInput').value.trim();
-  if (!q) return;
-  var resultsDiv = document.getElementById('searchResults');
-  resultsDiv.innerHTML = '<div class="loading">🔍 Searching movies, books & catalog...</div>';
-
-  try {
-    var resp = await fetch(API + '/api/search?q=' + encodeURIComponent(q));
-    var data = await resp.json();
-    
-    if (data.results && data.results.length > 0) {
-      var html = '<div class="sr-count">' + data.results.length + ' results for "' + q + '"</div>';
-      data.results.forEach(function(r) {
-        html += '<div class="sr-card">';
-        if (r.image) html += '<img src="' + r.image + '" class="sr-img" alt="' + (r.title || '') + '">';
-        html += '<div class="sr-info">';
-        html += '<h3>' + (r.title || 'Untitled') + '</h3>';
-        html += '<div class="sr-meta">';
-        html += '<span class="badge-t ' + r.source + '">' + getSourceLabel(r.source) + '</span>';
-        if (r.type) html += '<span class="badge-t ' + r.type + '">' + r.type + '</span>';
-        if (r.year) html += '<span>' + r.year + '</span>';
-        if (r.rating) html += '<span>⭐ ' + r.rating + '</span>';
-        html += '</div>';
-        if (r.author) html += '<p>by ' + r.author + '</p>';
-        if (r.overview) html += '<p class="sr-overview">' + r.overview.substring(0, 150) + '...</p>';
-        if (r.read_url) html += '<a href="' + r.read_url + '" target="_blank" class="sr-link">📖 Read on Open Library</a>';
-        html += '</div></div>';
-      });
-      resultsDiv.innerHTML = html;
-    } else {
-      resultsDiv.innerHTML = '<div class="sr-empty">No results found for "' + q + '". Try different keywords.</div>';
-    }
-  } catch(e) {
-    resultsDiv.innerHTML = '<div class="sr-error">⚠️ Worker offline. Using local mode.</div>';
-    searchLocal(q, resultsDiv);
-  }
-};
-
-function getSourceLabel(s) {
-  var map = { tmdb: '🎬 Movie', openlibrary: '📚 Book', catalog: '📁 Catalog' };
-  return map[s] || s;
-}
-
-function searchLocal(q, div) {
-  div.innerHTML += '<div class="sr-empty">Worker se connect nahi ho paya. Try again later.</div>';
-}
-
-// ============================================================
-// MOVIES — load from TMDB via Worker
-// ============================================================
-window.loadMovies = async function(type) {
-  type = type || 'popular';
-  var container = document.getElementById('moviesGrid');
-  if (container) container.innerHTML = '<div class="loading">🎬 Loading movies...</div>';
-  
-  try {
-    var resp = await fetch(API + '/api/movies?type=' + type);
-    var data = await resp.json();
-    if (data.results && container) {
-      var html = '';
-      data.results.forEach(function(m) {
-        html += '<div class="movie-card">';
-        if (m.image) html += '<img src="' + m.image + '" class="movie-poster" alt="' + m.title + '">';
-        html += '<div class="movie-info">';
-        html += '<h4>' + m.title + '</h4>';
-        html += '<div class="movie-meta">';
-        if (m.rating) html += '<span>⭐ ' + m.rating + '</span>';
-        if (m.year) html += '<span>' + m.year + '</span>';
-        html += '</div></div></div>';
-      });
-      container.innerHTML = html;
-    }
-  } catch(e) {
-    if (container) container.innerHTML = '<div class="sr-error">Movies load nahi ho payi.</div>';
-  }
-};
-
-// ============================================================
-// BOOKS — Open Library via Worker
-// ============================================================
-window.loadBooks = async function(q) {
-  q = q || 'famous';
-  var container = document.getElementById('booksGrid');
-  if (container) container.innerHTML = '<div class="loading">📚 Loading books...</div>';
-  
-  try {
-    var resp = await fetch(API + '/api/books?q=' + encodeURIComponent(q));
-    var data = await resp.json();
-    if (data.results && container) {
-      var html = '';
-      data.results.forEach(function(b) {
-        html += '<div class="book-card">';
-        if (b.cover) html += '<img src="' + b.cover + '" class="book-cover" alt="' + b.title + '">';
-        html += '<div class="book-info">';
-        html += '<h4>' + b.title + '</h4>';
-        html += '<p>' + (b.author || '') + ' ' + (b.year ? '(' + b.year + ')' : '') + '</p>';
-        if (b.read_url) html += '<a href="' + b.read_url + '" target="_blank" class="sr-link">📖 Read Free</a>';
-        html += '</div></div>';
-      });
-      container.innerHTML = html;
-    }
-  } catch(e) {
-    if (container) container.innerHTML = '<div class="sr-error">Books load nahi ho payi.</div>';
-  }
-};
-
-// ============================================================
-// TRENDING — load combined trending
-// ============================================================
-window.loadTrending = async function() {
-  try {
-    var resp = await fetch(API + '/api/trending');
-    var data = await resp.json();
-    var mCount = (data.movies || []).length;
-    var bCount = (data.books || []).length;
-    document.getElementById('sMed').textContent = (mCount + bCount);
-    document.getElementById('sMsg').textContent = '✅';
-  } catch(e) {
-    document.getElementById('sMsg').textContent = '—';
-  }
-};
-
-// ============================================================
-// CATALOG — D1 database content
-// ============================================================
-window.loadCatalog = async function() {
-  var container = document.getElementById('catalogList');
-  if (!container) return;
-  container.innerHTML = '<div class="loading">Loading catalog...</div>';
-  
-  try {
-    var resp = await fetch(API + '/api/catalog');
-    var data = await resp.json();
-    if (data.results && data.results.length) {
-      var html = '<div class="sr-count">' + data.results.length + ' items in catalog</div>';
-      data.results.forEach(function(item) {
-        html += '<div class="sr-card">';
-        if (item.image) html += '<img src="' + item.image + '" class="sr-img" alt="' + item.title + '">';
-        html += '<div class="sr-info">';
-        html += '<h3>' + item.title + '</h3>';
-        html += '<div class="sr-meta">';
-        html += '<span class="badge-t ' + item.type + '">' + item.type + '</span>';
-        if (item.year) html += '<span>' + item.year + '</span>';
-        if (item.rating) html += '<span>⭐ ' + item.rating + '</span>';
-        html += '</div>';
-        if (item.description) html += '<p>' + item.description.substring(0, 100) + '</p>';
-        html += '<button onclick="deleteCatalog(' + item.id + ')" class="del-btn">🗑️</button>';
-        html += '</div></div>';
-      });
-      container.innerHTML = html;
-    } else {
-      container.innerHTML = '<div class="sr-empty">Catalog khali hai. Items add karo!</div>';
-    }
-  } catch(e) {
-    container.innerHTML = '<div class="sr-error">Catalog load nahi ho paya.</div>';
-  }
-};
-
-window.addToCatalog = async function() {
-  var title = document.getElementById('catTitle').value.trim();
-  var type = document.getElementById('catType').value;
-  var desc = document.getElementById('catDesc').value.trim();
-  if (!title) return alert('Title zaroori hai!');
-  
-  try {
-    await fetch(API + '/api/catalog', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: title, type: type, description: desc })
-    });
-    document.getElementById('catTitle').value = '';
-    document.getElementById('catDesc').value = '';
-    loadCatalog();
-  } catch(e) {
-    alert('Add failed: ' + e.message);
-  }
-};
-
-window.deleteCatalog = async function(id) {
-  if (!confirm('Delete this item?')) return;
-  try {
-    await fetch(API + '/api/catalog/item?id=' + id, { method: 'DELETE' });
-    loadCatalog();
-  } catch(e) {}
-};
-
-// ============================================================
-// AI CHAT — worker AI router
-// ============================================================
-window.chat = async function(msg) {
-  if (!msg || !msg.trim()) return;
-  msg = msg.trim();
-  var msgs = document.getElementById('cMsgs') || document.getElementById('qChat');
-  if (!msgs) return;
-  
-  // Add user message
-  msgs.innerHTML += '<div class="cm user"><span class="cb">👤 YOU</span><p>' + escHtml(msg) + '</p></div>';
-  
-  try {
-    var resp = await fetch(API + '/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg })
-    });
-    var data = await resp.json();
-    msgs.innerHTML += '<div class="cm ai"><span class="cb">' + (data.icon || '⚡') + ' ' + (data.worker || 'MAIN').toUpperCase() + '</span><p>' + escHtml(data.response || 'No response') + '</p></div>';
-  } catch(e) {
-    msgs.innerHTML += '<div class="cm ai"><span class="cb">⚡ MAIN AI</span><p>Worker se connect nahi ho paya. Try again! 🔌</p></div>';
-  }
-  
-  msgs.scrollTop = msgs.scrollHeight;
-};
-
-window.qSend = function() {
-  var input = document.getElementById('qIn');
-  if (input && input.value.trim()) {
-    window.chat(input.value);
-    input.value = '';
-  }
-};
-
-// ============================================================
-// UTILITIES
-// ============================================================
-function escHtml(s) {
-  var d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
-
-})();
-
-// ============================================================
-// TABS — movie & book tab switching
-// ============================================================
-window.switchMovieTab = function(btn, type) {
-  document.querySelectorAll('#p-movies .tabb').forEach(function(b){ b.classList.remove('on') });
-  btn.classList.add('on');
-  window.loadMovies(type);
-};
-
-window.switchBookTab = function(btn, q) {
-  document.querySelectorAll('#p-books .tabb').forEach(function(b){ b.classList.remove('on') });
-  btn.classList.add('on');
-  window.loadBooks(q);
-};
-
-// Load on page show
-window.go = (function(orig){
-  return function(p) {
-    orig(p);
-    if (p === 'movies') window.loadMovies('popular');
-    if (p === 'books') window.loadBooks('famous');
-  };
-})(window.go);
-
-// ============================================================
-// LIVE TV — IPTV channels with player
-// ============================================================
-let tvData = { channels: [], hindi: [], other: [] };
-let tvCurrentGroup = 'all';
-
-window.loadLiveTV = async function() {
-  var container = document.getElementById('tvChannels');
-  if (!container) return;
-  container.innerHTML = '<div class="loading">📺 Loading channels...</div>';
-
-  try {
-    var resp = await fetch(API + '/api/live-tv');
-    var data = await resp.json();
-    
-    tvData = data;
-    document.getElementById('tvCount').textContent = data.total || 0;
-    
-    // Build group filters
-    var groupsHtml = '<button class="tv-gf on" onclick="filterTVGroup(\\'all\\',this)">All (' + data.total + ')</button>';
-    groupsHtml += '<button class="tv-gf" onclick="filterTVGroup(\\'hindi\\',this)">🇮🇳 Hindi (' + data.hindi + ')</button>';
-    if (data.groups) {
-      var sorted = Object.entries(data.groups).sort((a,b) => b[1]-a[1]).slice(0, 15);
-      sorted.forEach(function(g) {
-        groupsHtml += '<button class="tv-gf" onclick="filterTVGroup(\\'' + g[0].replace(/'/g,"\\\\'") + '\\',this)">' + g[0] + ' (' + g[1] + ')</button>';
-      });
-    }
-    document.getElementById('tvGroups').innerHTML = groupsHtml;
-
-    renderTVChannels(data.channels || []);
-  } catch(e) {
-    container.innerHTML = '<div class="sr-error">⚠️ Channels load nahi ho paye. Try again.</div>';
-  }
-};
-
-function renderTVChannels(channels) {
-  var container = document.getElementById('tvChannels');
-  if (!channels.length) {
-    container.innerHTML = '<div class="sr-empty">Koi channel nahi mila.</div>';
-    return;
-  }
-  var html = '<div class="tv-grid">';
-  channels.forEach(function(ch, i) {
-    html += '<div class="tv-card" onclick="playTVChannel(' + i + ')" title="' + escHtml(ch.name) + '">';
-    if (ch.logo) html += '<img src="' + ch.logo + '" class="tv-logo" onerror="this.style.display=\\'none\\'">';
-    else html += '<div class="tv-logo-placeholder">📺</div>';
-    html += '<div class="tv-card-info">';
-    html += '<div class="tv-card-name">' + escHtml(ch.name) + '</div>';
-    html += '<div class="tv-card-group">' + escHtml(ch.group) + '</div>';
-    if (ch.hindi) html += '<span class="tv-hindi-badge">🇮🇳</span>';
-    html += '</div></div>';
+function json(d, s = 200) {
+  return new Response(JSON.stringify(d), {
+    status: s,
+    headers: { ...CORS, 'Content-Type': 'application/json' },
   });
-  html += '</div>';
-  container.innerHTML = html;
 }
 
-window.playTVChannel = function(index) {
-  var ch = tvData.channels[index];
-  if (!ch || !ch.url) return;
-
-  var video = document.getElementById('tvVideo');
-  var placeholder = document.getElementById('tvPlaceholder');
-  var nowPlaying = document.getElementById('tvNowPlaying');
-  var channelName = document.getElementById('tvChannelName');
-
-  // Try playing through proxy for CORS
-  var playUrl = API ? API + '/api/live-tv/stream?url=' + encodeURIComponent(ch.url) : ch.url;
-
-  video.src = playUrl;
-  video.style.display = 'block';
-  placeholder.style.display = 'none';
-  nowPlaying.style.display = 'flex';
-  channelName.textContent = ch.name;
-
-  video.play().catch(function(e) {
-    // If proxy fails, try direct
-    console.log('Proxy failed, trying direct:', e);
-    video.src = ch.url;
-    video.play().catch(function(e2) {
-      placeholder.innerHTML = '<span style="font-size:48px">❌</span><p>Channel play nahi ho raha</p><p style="font-size:12px;color:var(--text2)">' + e2.message + '</p>';
-      placeholder.style.display = 'flex';
-      video.style.display = 'none';
-      nowPlaying.style.display = 'none';
-    });
+function html(content) {
+  return new Response(content, {
+    headers: { ...CORS, 'Content-Type': 'text/html;charset=utf-8', 'Cache-Control': 'public,max-age=60' },
   });
-};
-
-window.filterTVGroup = function(group, btn) {
-  tvCurrentGroup = group;
-  document.querySelectorAll('.tv-gf').forEach(function(b){ b.classList.remove('on') });
-  if (btn) btn.classList.add('on');
-  filterTVChannels();
-};
-
-window.filterTVChannels = function() {
-  var search = (document.getElementById('tvSearch')?.value || '').toLowerCase();
-  var filtered = (tvData.channels || []).filter(function(ch) {
-    var matchGroup = tvCurrentGroup === 'all' || 
-      (tvCurrentGroup === 'hindi' && ch.hindi) ||
-      ch.group.toLowerCase() === tvCurrentGroup.toLowerCase();
-    var matchSearch = !search || ch.name.toLowerCase().includes(search) || ch.group.toLowerCase().includes(search);
-    return matchGroup && matchSearch;
-  });
-  renderTVChannels(filtered);
-};
-
-// Auto-load TV when page shown
-window.go = (function(orig){
-  return function(p) {
-    orig(p);
-    if (p === 'tv') window.loadLiveTV();
-    if (p === 'movies') window.loadMovies('popular');
-    if (p === 'books') window.loadBooks('famous');
-  };
-})(window.go);
-`;
-
-function serveStatic(path) {
-  if (path === '/' || path === '/index.html') {
-    return new Response(INDEX_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
-  }
-  if (path === '/css/style.css') {
-    return new Response(STYLE_CSS, { headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
-  }
-  if (path === '/js/app.js') {
-    return new Response(APP_JS, { headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
-  }
-  return null;
 }
 
-const json = (data, status = 200) => new Response(
-  JSON.stringify(data),
-  { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-);
+// ============================================================
+// IPTV SOURCES — Hindi + World
+// ============================================================
+const IPTV_SOURCES = [
+  { name: 'India Hindi', url: 'https://raw.githubusercontent.com/iptv-org/iptv/master/streams/in.m3u' },
+  { name: 'World Hindi', url: 'https://raw.githubusercontent.com/Free-TV/IPTV/main/streams/India.m3u' },
+];
 
+const HINDI_KEYWORDS = [
+  'hindi','star plus','sony sab','sony','zee tv','zee','colors','and tv','star bharat',
+  'news18','aaj tak','abp news','zee news','ndtv','republic','times now','india tv',
+  'dd national','dd news','star gold','zee cinema','sony max','set max','b4u','zee anmol',
+  'star utsav','sony wah','big magic','rishtey','alliance','entertainment',
+  'mtv','bindass','sab','disney','hungama','nick','pogo','cartoon',
+  'tsp1','tsp2','tsp3','sports18','jio cinema','jiocinema',
+];
+
+function isHindi(name) {
+  const n = name.toLowerCase();
+  return HINDI_KEYWORDS.some(k => n.includes(k));
+}
+
+async function parseM3U(url) {
+  try {
+    const resp = await fetch(url, { redirect: 'follow' });
+    if (!resp.ok) return [];
+    const text = await resp.text();
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const channels = [];
+    let current = {};
+    for (const line of lines) {
+      if (line.startsWith('#EXTINF:')) {
+        const nameMatch = line.match(/,(.+)$/);
+        const logoMatch = line.match(/tvg-logo="([^"]*)"/i) || line.match(/logo="([^"]*)"/i);
+        const groupMatch = line.match(/group-title="([^"]*)"/i);
+        current = {
+          name: nameMatch ? nameMatch[1].trim() : 'Unknown',
+          logo: logoMatch ? logoMatch[1] : '',
+          group: groupMatch ? groupMatch[1] : 'General',
+        };
+      } else if (line && !line.startsWith('#') && (line.startsWith('http') || line.startsWith('rtmp'))) {
+        current.url = line;
+        current.hindi = isHindi(current.name) || isHindi(current.group);
+        channels.push(current);
+        current = {};
+      }
+    }
+    return channels;
+  } catch (e) {
+    console.error('M3U parse error:', e);
+    return [];
+  }
+}
+
+// ============================================================
+// ROUTING
+// ============================================================
 export default {
-  async scheduled(event, env, ctx) {
-    ctx.waitUntil(runDailySync(env));
-  },
-
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
 
-    if (method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders });
-    }
+    if (method === 'OPTIONS') return new Response(null, { headers: CORS });
 
-    trackAnalytics(env, path);
+    try {
+      // --- Telegram ---
+      if (path === '/api/telegram/webhook' && method === 'POST')
+        return handleTelegramWebhook(request, env);
+      if (path === '/api/telegram/messages')
+        return handleTelegramMessages(url, env);
+      if (path === '/api/telegram/file') return handleTelegramFile(url, env);
+      if (path === '/api/telegram/sync' && method === 'POST')
+        return handleTelegramSync(env);
+      if (path === '/api/telegram/stats')
+        return handleTelegramStats(env);
 
-    // Serve static frontend
-    const staticResp = serveStatic(path);
-    if (staticResp) return staticResp;
+      // --- Live TV ---
+      if (path === '/api/live-tv')
+        return handleLiveTV(url, env);
+      if (path === '/api/live-tv/stream')
+        return handleLiveTVStream(url);
 
-    let route;
-    
-    if (path === '/api/health' || path === '/api/status') {
-      route = handleStatus(env);
+      // --- Movies ---
+      if (path === '/api/movies')
+        return handleMovies(url, env);
+
+      // --- Books ---
+      if (path === '/api/books')
+        return handleBooks(url, env);
+
+      // --- Search ---
+      if (path === '/api/search')
+        return handleSearch(url, env);
+
+      // --- Chat ---
+      if (path === '/api/chat' && method === 'POST')
+        return handleChat(request, env);
+
+      // --- Catalog (D1) ---
+      if (path === '/api/catalog' && method === 'GET')
+        return handleCatalogList(env);
+      if (path === '/api/catalog' && method === 'POST')
+        return handleCatalogAdd(request, env);
+      if (path === '/api/catalog' && method === 'DELETE')
+        return handleCatalogDelete(url, env);
+
+      // --- Status ---
+      if (path === '/api/status' || path === '/api/health')
+        return handleStatus(env);
+
+      // --- Frontend ---
+      if (path === '/' || path === '/index.html')
+        return html(INDEX_HTML);
+      if (path === '/css/style.css')
+        return new Response(STYLE_CSS, { headers: { ...CORS, 'Content-Type': 'text/css', 'Cache-Control': 'public,max-age=3600' } });
+      if (path === '/js/app.js')
+        return new Response(APP_JS, { headers: { ...CORS, 'Content-Type': 'application/javascript', 'Cache-Control': 'public,max-age=3600' } });
+
+      // --- 404 ---
+      return json({ error: 'Not Found', endpoints: ['/api/status','/api/telegram/messages','/api/live-tv','/api/movies','/api/books','/api/search','/api/chat','/api/catalog'] }, 404);
+    } catch (e) {
+      return json({ error: e.message }, 500);
     }
-    else if (path === '/api/chat' && method === 'POST') {
-      route = handleChat(request, env);
-    }
-    else if (path === '/api/search') {
-      route = handleSearch(url, env);
-    }
-    else if (path === '/api/movies') {
-      route = handleMovies(url, env);
-    }
-    else if (path === '/api/books') {
-      route = handleBooks(url, env);
-    }
-    else if (path === '/api/trending') {
-      route = handleTrending(env);
-    }
-    else if (path === '/api/live-tv') {
-      route = handleLiveTV(url, env);
-    }
-    else if (path === '/api/live-tv/stream') {
-      route = handleLiveTVStream(url, env);
-    }
-    else if (path === '/api/telegram/webhook' && method === 'POST') {
-      route = handleTelegramWebhook(request, env);
-    }
-    else if (path === '/api/catalog' && method === 'GET') {
-      route = handleCatalogList(url, env);
-    }
-    else if (path === '/api/catalog' && method === 'POST') {
-      route = handleCatalogAdd(request, env);
-    }
-    else if (path === '/api/catalog/item' && method === 'DELETE') {
-      route = handleCatalogDelete(url, env);
-    }
-    else if (path.startsWith('/api/media/upload') && method === 'PUT') {
-      route = handleMediaUpload(request, env);
-    }
-    else if (path.startsWith('/api/media/') && method === 'GET') {
-      route = handleMediaGet(path, env);
-    }
-    else if (path === '/api/analytics') {
-      route = handleAnalytics(env);
-    }
-    else if (path === '/api/cache') {
-      route = handleCacheDemo(env);
-    }
-    else {
-      route = json({
-        service: 'jdub-hub-worker',
-        version: '3.1.0',
-        endpoints: [
-          '/api/health', '/api/status',
-          '/api/search?q=', '/api/movies', '/api/books',
-          '/api/trending', '/api/live-tv', '/api/live-tv/stream?url=',
-          '/api/catalog', '/api/analytics', '/api/cache',
-          '/api/telegram/webhook'
-        ]
-      });
-    }
-    return route;
-  }
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runScheduledSync(env));
+  },
 };
 
 // ============================================================
-// ANALYTICS
+// TELEGRAM — Webhook & Data Storage
 // ============================================================
-function trackAnalytics(env, path) {
+async function handleTelegramWebhook(request, env) {
   try {
-    if (env.ANALYTICS) {
-      env.ANALYTICS.writeDataPoint({
-        blobs: [path, 'jdub-hub'],
-        doubles: [1],
-        indexes: ['pageview']
-      });
+    const update = await request.json();
+    if (!update.message) return json({ ok: true });
+
+    const msg = update.message;
+    const chatId = msg.chat?.id?.toString();
+    const allowedChat = env.TG_CHAT_ID;
+
+    if (allowedChat && chatId !== allowedChat) return json({ ok: true });
+
+    const entry = {
+      id: msg.message_id,
+      chat_id: chatId,
+      date: msg.date,
+      from: msg.from?.first_name || 'Unknown',
+      text: msg.text || '',
+      has_media: !!(msg.photo || msg.document || msg.video || msg.audio || msg.voice || msg.animation),
+      media_type: msg.photo ? 'photo' : msg.document ? 'document' : msg.video ? 'video' : msg.audio ? 'audio' : msg.voice ? 'voice' : msg.animation ? 'animation' : null,
+      file_name: msg.document?.file_name || msg.video?.file_name || '',
+      file_size: msg.document?.file_size || msg.video?.file_size || msg.audio?.file_size || 0,
+      file_id: (msg.photo ? msg.photo[msg.photo.length - 1]?.file_id : null) || msg.document?.file_id || msg.video?.file_id || msg.audio?.file_id || msg.voice?.file_id || '',
+      caption: msg.caption || '',
+      views: msg.views || 0,
+      forwards: msg.forwards || 0,
+    };
+
+    // Store in KV
+    if (env.KV_STORE) {
+      // Store individual message
+      await env.KV_STORE.put(`msg:${chatId}:${msg.message_id}`, JSON.stringify(entry), { expirationTtl: 2592000 });
+
+      // Update message index (keep last 5000)
+      const indexKey = `index:${chatId}`;
+      const existing = await env.KV_STORE.get(indexKey, { type: 'json' }) || { ids: [], total: 0, last_sync: 0 };
+      existing.ids = [msg.message_id, ...existing.ids.filter(id => id !== msg.message_id)].slice(0, 5000);
+      existing.total = existing.total + 1;
+      existing.last_sync = Date.now();
+      await env.KV_STORE.put(indexKey, JSON.stringify(existing), { expirationTtl: 2592000 });
+
+      // Update stats
+      const statsKey = `stats:${chatId}`;
+      const stats = await env.KV_STORE.get(statsKey, { type: 'json' }) || { total: 0, photos: 0, videos: 0, documents: 0, audios: 0 };
+      stats.total++;
+      if (entry.media_type === 'photo') stats.photos++;
+      else if (entry.media_type === 'video') stats.videos++;
+      else if (entry.media_type === 'document') stats.documents++;
+      else if (entry.media_type === 'audio') stats.audios++;
+      await env.KV_STORE.put(statsKey, JSON.stringify(stats), { expirationTtl: 2592000 });
     }
-  } catch (e) {}
-}
 
-// ============================================================
-// STATUS
-// ============================================================
-async function handleStatus(env) {
-  const services = {
-    main: 'online', workers: 6,
-    kv: env.CACHE ? 'connected' : 'not_configured',
-    d1: env.CATALOG_DB ? 'connected' : 'not_configured',
-    r2: env.MEDIA_BUCKET ? 'connected' : 'not_configured',
-    cron: 'scheduled', analytics: 'configured',
-    tmdb: 'api_ready', openlibrary: 'api_ready',
-    livetv: 'ready', telegram: 'webhook_ready'
-  };
-
-  if (env.CACHE) {
-    try {
-      await env.CACHE.put('health_check', Date.now().toString());
-      const t = await env.CACHE.get('health_check');
-      services.kv = t ? 'connected_live' : 'connected';
-    } catch (e) {}
-  }
-  if (env.CATALOG_DB) {
-    try {
-      await env.CATALOG_DB.prepare('SELECT 1 AS ok').first();
-      services.d1 = 'connected_live';
-    } catch (e) {}
-  }
-
-  return json({ status: 'ok', service: 'jdub-hub', version: '3.1.0', uptime: Date.now(), services });
-}
-
-// ============================================================
-// SEARCH
-// ============================================================
-async function handleSearch(url, env) {
-  const q = url.searchParams.get('q');
-  if (!q) return json({ error: 'q param required' }, 400);
-
-  // KV cache
-  if (env.CACHE) {
-    const cached = await env.CACHE.get('search_' + q.toLowerCase());
-    if (cached) return json(JSON.parse(cached));
-  }
-
-  const results = { movies: [], books: [], catalog: [] };
-
-  // D1 catalog
-  if (env.CATALOG_DB) {
-    try {
-      await initCatalogTable(env.CATALOG_DB);
-      const { results: dbResults } = await env.CATALOG_DB.prepare(
-        "SELECT * FROM catalog WHERE title LIKE ?1 OR description LIKE ?1 LIMIT 10"
-      ).bind('%' + q + '%').all();
-      results.catalog = dbResults;
-    } catch (e) {}
-  }
-
-  // TMDB
-  if (env.TMDB_KEY) {
-    try {
-      const resp = await fetch(
-        `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(q)}&api_key=${env.TMDB_KEY}&language=hi-IN`
-      );
-      const data = await resp.json();
-      results.movies = (data.results || []).slice(0, 10).map(r => ({
-        id: r.id, title: r.title || r.name,
-        type: r.media_type === 'movie' ? 'movie' : 'tv',
-        rating: r.vote_average, image: r.poster_path ? `https://image.tmdb.org/t/p/w300${r.poster_path}` : '',
-        year: (r.release_date || r.first_air_date || '').substring(0, 4),
-        overview: r.overview || ''
-      }));
-    } catch (e) {}
-  }
-
-  // Open Library
-  try {
-    const resp = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=10`);
-    const data = await resp.json();
-    results.books = (data.docs || []).slice(0, 10).map(b => ({
-      title: b.title, author: (b.author_name || [])[0] || 'Unknown',
-      year: (b.first_publish_year || ''), cover: b.cover_i ? `https://covers.openlibrary.org/b/id/${b.cover_i}-M.jpg` : '',
-      key: b.key, read_url: `https://openlibrary.org${b.key}`
-    }));
-  } catch (e) {}
-
-  // Cache 5 min
-  if (env.CACHE) {
-    await env.CACHE.put('search_' + q.toLowerCase(), JSON.stringify(results), { expirationTtl: 300 });
-  }
-
-  return json(results);
-}
-
-// ============================================================
-// MOVIES
-// ============================================================
-async function handleMovies(url, env) {
-  const type = url.searchParams.get('type') || 'popular';
-  if (!env.TMDB_KEY) return json({ error: 'TMDB key not set' }, 500);
-
-  if (env.CACHE) {
-    const cached = await env.CACHE.get('movies_' + type);
-    if (cached) return json({ type, results: JSON.parse(cached) });
-  }
-
-  try {
-    const resp = await fetch(
-      `https://api.themoviedb.org/3/movie/${type}?language=hi-IN&page=1&api_key=${env.TMDB_KEY}`
-    );
-    const data = await resp.json();
-    const results = (data.results || []).map(r => ({
-      id: r.id, title: r.title, rating: r.vote_average,
-      image: r.poster_path ? `https://image.tmdb.org/t/p/w300${r.poster_path}` : '',
-      year: (r.release_date || '').substring(0, 4), overview: r.overview || ''
-    }));
-
-    if (env.CACHE) {
-      await env.CACHE.put('movies_' + type, JSON.stringify(results), { expirationTtl: 7200 });
+    // Set webhook URL if not set
+    if (env.TG_BOT_TOKEN && env.WORKER_URL && !env._webhook_set) {
+      try {
+        await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/setWebhook`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: env.WORKER_URL + '/api/telegram/webhook', allowed_updates: ['message'] }),
+        });
+        if (env.KV_STORE) await env.KV_STORE.put('webhook_set', 'true');
+      } catch (e) {}
     }
-    return json({ type, results });
+
+    return json({ ok: true });
+  } catch (e) {
+    return json({ ok: true });
+  }
+}
+
+async function handleTelegramMessages(url, env) {
+  if (!env.KV_STORE) return json({ messages: [], error: 'KV not configured', total: 0 });
+
+  const chatId = url.searchParams.get('chat_id') || env.TG_CHAT_ID || '';
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
+  const offset = parseInt(url.searchParams.get('offset') || '0');
+  const type = url.searchParams.get('type'); // photo, video, document, audio
+
+  const indexKey = `index:${chatId}`;
+  const index = await env.KV_STORE.get(indexKey, { type: 'json' }) || { ids: [], total: 0 };
+
+  const startIdx = offset;
+  const endIdx = Math.min(startIdx + limit, index.ids.length);
+  const sliceIds = index.ids.slice(startIdx, endIdx);
+
+  const messages = [];
+  for (const id of sliceIds) {
+    const raw = await env.KV_STORE.get(`msg:${chatId}:${id}`, { type: 'json' });
+    if (raw) {
+      if (!type || raw.media_type === type || (type === 'media' && raw.has_media)) {
+        messages.push(raw);
+      }
+    }
+  }
+
+  return json({ messages, total: index.total, offset, limit, has_more: endIdx < index.ids.length });
+}
+
+async function handleTelegramSync(env) {
+  if (!env.TG_BOT_TOKEN) return json({ error: 'TG_BOT_TOKEN not set' });
+
+  try {
+    const botToken = env.TG_BOT_TOKEN;
+    const resp = await fetch(`https://api.telegram.org/bot${botToken}/getUpdates?limit=100&allowed_updates=["message"]`);
+    const data = await resp.json();
+
+    if (!data.ok) return json({ error: 'Telegram API error', detail: data.description });
+
+    let processed = 0;
+    for (const update of data.result) {
+      if (update.message) {
+        const msg = update.message;
+        const chatId = msg.chat?.id?.toString();
+        if (!chatId) continue;
+
+        const entry = {
+          id: msg.message_id,
+          chat_id: chatId,
+          date: msg.date,
+          from: msg.from?.first_name || 'Unknown',
+          text: msg.text || '',
+          has_media: !!(msg.photo || msg.document || msg.video || msg.audio || msg.voice || msg.animation),
+          media_type: msg.photo ? 'photo' : msg.document ? 'document' : msg.video ? 'video' : msg.audio ? 'audio' : msg.voice ? 'voice' : msg.animation ? 'animation' : null,
+          file_name: msg.document?.file_name || msg.video?.file_name || '',
+          file_size: msg.document?.file_size || msg.video?.file_size || msg.audio?.file_size || 0,
+          file_id: (msg.photo ? msg.photo[msg.photo.length - 1]?.file_id : null) || msg.document?.file_id || msg.video?.file_id || msg.audio?.file_id || msg.voice?.file_id || '',
+          caption: msg.caption || '',
+          views: msg.views || 0,
+          forwards: msg.forwards || 0,
+        };
+
+        if (env.KV_STORE) {
+          await env.KV_STORE.put(`msg:${chatId}:${msg.message_id}`, JSON.stringify(entry), { expirationTtl: 2592000 });
+          const indexKey = `index:${chatId}`;
+          const existing = await env.KV_STORE.get(indexKey, { type: 'json' }) || { ids: [], total: 0, last_sync: 0 };
+          if (!existing.ids.includes(msg.message_id)) {
+            existing.ids = [msg.message_id, ...existing.ids].slice(0, 5000);
+            existing.total++;
+          }
+          existing.last_sync = Date.now();
+          await env.KV_STORE.put(indexKey, JSON.stringify(existing), { expirationTtl: 2592000 });
+          processed++;
+        }
+      }
+    }
+
+    return json({ ok: true, processed, total_updates: data.result.length });
   } catch (e) {
     return json({ error: e.message }, 500);
   }
 }
 
+async function handleTelegramStats(env) {
+  if (!env.KV_STORE) return json({ error: 'KV not configured' });
+  const chatId = env.TG_CHAT_ID || '';
+  const stats = await env.KV_STORE.get(`stats:${chatId}`, { type: 'json' }) || { total: 0, photos: 0, videos: 0, documents: 0, audios: 0 };
+  const index = await env.KV_STORE.get(`index:${chatId}`, { type: 'json' }) || { total: 0, last_sync: 0 };
+  return json({ ...stats, indexed: index.ids?.length || 0, last_sync: index.last_sync });
+}
+
 // ============================================================
-// BOOKS
+// LIVE TV
+// ============================================================
+
+
+async function handleTelegramFile(url, env) {
+  if (!env.TG_BOT_TOKEN) return json({ error: 'Bot token not configured' }, 500);
+  const fileId = url.searchParams.get('file_id');
+  if (!fileId) return json({ error: 'file_id required' }, 400);
+  try {
+    const resp = await fetch('https://api.telegram.org/bot' + env.TG_BOT_TOKEN + '/getFile?file_id=' + encodeURIComponent(fileId));
+    const data = await resp.json();
+    if (!data.ok) return json({ error: 'Telegram API error', detail: data.description }, 500);
+    const filePath = data.result.file_path;
+    const fileResp = await fetch('https://api.telegram.org/file/bot' + env.TG_BOT_TOKEN + '/' + filePath);
+    return new Response(fileResp.body, {
+      headers: {
+        'Content-Type': data.result.file_path.endsWith('.mp4') ? 'video/mp4' : data.result.file_path.endsWith('.jpg') || data.result.file_path.endsWith('.png') ? 'image/jpeg' : 'application/octet-stream',
+        'Content-Length': data.result.file_size || '',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
+async function handleLiveTV(url, env) {
+  if (env.KV_STORE) {
+    const cached = await env.KV_STORE.get('livetv_all');
+    if (cached) return json(JSON.parse(cached));
+  }
+
+  const allChannels = [];
+  for (const src of IPTV_SOURCES) {
+    const channels = await parseM3U(src.url);
+    channels.forEach(ch => { ch.source = src.name; allChannels.push(ch); });
+  }
+
+  // Deduplicate by name
+  const seen = new Set();
+  const unique = allChannels.filter(ch => {
+    const key = ch.name.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // Sort: Hindi first
+  unique.sort((a, b) => (b.hindi ? 1 : 0) - (a.hindi ? 1 : 0));
+
+  const hindiCount = unique.filter(ch => ch.hindi).length;
+  const groups = {};
+  unique.forEach(ch => { groups[ch.group] = (groups[ch.group] || 0) + 1; });
+
+  const result = { channels: unique, total: unique.length, hindi: hindiCount, groups };
+
+  if (env.KV_STORE) {
+    await env.KV_STORE.put('livetv_all', JSON.stringify(result), { expirationTtl: 3600 });
+  }
+
+  return json(result);
+}
+
+function handleLiveTVStream(url) {
+  const streamUrl = url.searchParams.get('url');
+  if (!streamUrl) return json({ error: 'url param required' }, 400);
+  return new Response(null, {
+    status: 302,
+    headers: { Location: streamUrl, ...CORS },
+  });
+}
+
+// ============================================================
+// MOVIES — TMDB
+// ============================================================
+async function handleMovies(url, env) {
+  const type = url.searchParams.get('type') || 'popular';
+  if (!env.TMDB_KEY) {
+    return json({ results: getSampleMovies(), type });
+  }
+
+  if (env.KV_STORE) {
+    const cached = await env.KV_STORE.get('movies_' + type);
+    if (cached) return json({ type, results: JSON.parse(cached) });
+  }
+
+  try {
+    const resp = await fetch(`https://api.themoviedb.org/3/movie/${type}?language=hi-IN&page=1&api_key=${env.TMDB_KEY}`);
+    const data = await resp.json();
+    const results = (data.results || []).map(r => ({
+      id: r.id, title: r.title, rating: r.vote_average,
+      image: r.poster_path ? `https://image.tmdb.org/t/p/w300${r.poster_path}` : '',
+      year: (r.release_date || '').substring(0, 4), overview: r.overview || '',
+    }));
+
+    if (env.KV_STORE) await env.KV_STORE.put('movies_' + type, JSON.stringify(results), { expirationTtl: 7200 });
+    return json({ type, results });
+  } catch (e) {
+    return json({ type, results: getSampleMovies() });
+  }
+}
+
+function getSampleMovies() {
+  return [
+    { id: 1, title: 'Pushpa 2: The Rule', rating: 7.5, image: '', year: '2024', overview: 'Action drama' },
+    { id: 2, title: 'Stree 2', rating: 7.2, image: '', year: '2024', overview: 'Horror comedy' },
+    { id: 3, title: 'Jawan', rating: 7.1, image: '', year: '2023', overview: 'Action thriller' },
+    { id: 4, title: 'Pathaan', rating: 6.5, image: '', year: '2023', overview: 'Spy action' },
+    { id: 5, title: 'Animal', rating: 6.8, image: '', year: '2023', overview: 'Crime drama' },
+    { id: 6, title: 'Gadar 2', rating: 6.0, image: '', year: '2023', overview: 'Period action' },
+    { id: 7, title: 'Rocky Aur Rani', rating: 6.5, image: '', year: '2023', overview: 'Romance drama' },
+    { id: 8, title: 'Tiger 3', rating: 5.8, image: '', year: '2023', overview: 'Spy action' },
+    { id: 9, title: 'Dunki', rating: 6.2, image: '', year: '2023', overview: 'Drama' },
+    { id: 10, title: 'Adipurush', rating: 3.5, image: '', year: '2023', overview: 'Mythology' },
+  ];
+}
+
+// ============================================================
+// BOOKS — Open Library
 // ============================================================
 async function handleBooks(url, env) {
-  const q = url.searchParams.get('q') || 'famous';
-  
-  if (env.CACHE) {
-    const cached = await env.CACHE.get('books_' + q.toLowerCase());
+  const q = url.searchParams.get('q') || 'hindi+novel';
+
+  if (env.KV_STORE) {
+    const cached = await env.KV_STORE.get('books_' + q.toLowerCase());
     if (cached) return json({ results: JSON.parse(cached) });
   }
 
@@ -1081,282 +449,136 @@ async function handleBooks(url, env) {
     const data = await resp.json();
     const results = (data.docs || []).map(b => ({
       title: b.title, author: (b.author_name || [])[0] || 'Unknown',
-      year: b.first_publish_year || '', cover: b.cover_i ? `https://covers.openlibrary.org/b/id/${b.cover_i}-M.jpg` : '',
-      key: b.key, read_url: `https://openlibrary.org${b.key}`
+      year: b.first_publish_year || '',
+      cover: b.cover_i ? `https://covers.openlibrary.org/b/id/${b.cover_i}-M.jpg` : '',
+      key: b.key, read_url: `https://openlibrary.org${b.key}`,
     }));
 
-    if (env.CACHE) {
-      await env.CACHE.put('books_' + q.toLowerCase(), JSON.stringify(results), { expirationTtl: 7200 });
-    }
+    if (env.KV_STORE) await env.KV_STORE.put('books_' + q.toLowerCase(), JSON.stringify(results), { expirationTtl: 7200 });
     return json({ results });
   } catch (e) {
-    return json({ error: e.message }, 500);
+    return json({ results: [] });
   }
 }
 
 // ============================================================
-// TRENDING
+// SEARCH — Combined
 // ============================================================
-async function handleTrending(env) {
-  if (env.CACHE) {
-    const cached = await env.CACHE.get('trending_movies');
-    if (cached) return json({ movies: JSON.parse(cached) });
+async function handleSearch(url, env) {
+  const q = url.searchParams.get('q');
+  if (!q) return json({ error: 'q required' }, 400);
+
+  const results = { movies: [], books: [], telegram: [] };
+
+  // Search Telegram messages
+  if (env.KV_STORE && env.TG_CHAT_ID) {
+    try {
+      const index = await env.KV_STORE.get(`index:${env.TG_CHAT_ID}`, { type: 'json' }) || { ids: [] };
+      const searchIds = index.ids.slice(0, 200);
+      for (const id of searchIds) {
+        const msg = await env.KV_STORE.get(`msg:${env.TG_CHAT_ID}:${id}`, { type: 'json' });
+        if (msg && (msg.text.toLowerCase().includes(q.toLowerCase()) || msg.file_name.toLowerCase().includes(q.toLowerCase()) || msg.caption.toLowerCase().includes(q.toLowerCase()))) {
+          results.telegram.push(msg);
+          if (results.telegram.length >= 20) break;
+        }
+      }
+    } catch (e) {}
   }
 
-  let movies = [];
+  // Search TMDB
   if (env.TMDB_KEY) {
     try {
-      const resp = await fetch(
-        `https://api.themoviedb.org/3/trending/all/week?language=hi-IN&api_key=${env.TMDB_KEY}`
-      );
+      const resp = await fetch(`https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(q)}&language=hi-IN&api_key=${env.TMDB_KEY}`);
       const data = await resp.json();
-      movies = (data.results || []).map(r => ({
-        id: r.id, title: r.title || r.name, type: r.media_type,
-        rating: r.vote_average,
-        image: r.poster_path ? `https://image.tmdb.org/t/p/w300${r.poster_path}` : ''
+      results.movies = (data.results || []).slice(0, 10).map(r => ({
+        id: r.id, title: r.title, rating: r.vote_average,
+        image: r.poster_path ? `https://image.tmdb.org/t/p/w300${r.poster_path}` : '',
+        year: (r.release_date || '').substring(0, 4), overview: r.overview || '',
       }));
     } catch (e) {}
   }
-  return json({ movies });
+
+  // Search Open Library
+  try {
+    const resp = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=10`);
+    const data = await resp.json();
+    results.books = (data.docs || []).map(b => ({
+      title: b.title, author: (b.author_name || [])[0] || 'Unknown',
+      cover: b.cover_i ? `https://covers.openlibrary.org/b/id/${b.cover_i}-M.jpg` : '',
+      read_url: `https://openlibrary.org${b.key}`,
+    }));
+  } catch (e) {}
+
+  return json(results);
 }
 
 // ============================================================
-// LIVE TV — Free IPTV (Hindi priority)
+// AI CHAT — Free Cloudflare AI
 // ============================================================
-const IPTV_SOURCES = [
-  { name: 'India', url: 'https://raw.githubusercontent.com/iptv-org/iptv/master/streams/in.m3u' },
-  { name: 'World', url: 'https://raw.githubusercontent.com/iptv-org/iptv/master/streams/all.m3u' }
-];
+async function handleChat(request, env) {
+  const body = await request.json();
+  const message = body.message || '';
+  if (!message) return json({ error: 'message required' }, 400);
 
-const HINDI_KEYWORDS = [
-  'hindi', 'india', 'star plus', 'sony', 'zee', 'colors', 'and tv', 'sab',
-  'news18', 'ndtv', 'aaj tak', 'abp', 'zee news', 'republic', 'times now',
-  'ndtv india', 'dangal', 'rishtey', 'big magic', 'sony sab', 'star bharat',
-  'set max', 'sony max', 'zee cinema', 'zee action', 'marathi', 'bhojpuri',
-  'punjabi', 'tamil', 'telugu', 'kannada', 'malayalam', 'bengali', 'gujarati',
-  'tv9', 'republic bharat', 'news nation', 'india tv', 'zeal', 'zoom',
-  'bindass', 'colours', 'star gold', 'sony wah', 'zee anmol',
-  // Popular Indian channel names from iptv-org
-  '9x', 'zoom', 'bindass', 'channel v', 'mtv', 'uttam', 'khushiyon',
-  'dangal', 'rishtey', 'big magic', 'sony pal', 'sahara', 'astha',
-  'aajtak', 'aaj tak', 'republic', 'news24', 'india news', 'india tv',
-  'India', 'IN@', '.in@', 'zee bangla', 'star jalsha', 'emami',
-  'sun tv', 'gemini', ' Asianet', 'mazhavil', 'kairali', 'flowers',
-  'zee tamil', 'star vijay', 'kalanjiyam', 'adithya', 'manorama',
-  'mathrubhumi', 'powder', 'j Movies', 'jio cinema', 'jiocinema',
-  'monsoon', 'hindi', 'bollywood', 'desi', 'Tashan', 'Jhakaas',
-  'Jalwa', 'Music', 'Bhakti', 'Satsang', 'Divya', 'Sudarshan',
-  'News18', 'TV9', 'NDTV', 'Republic', 'Times', 'India',
-  'Colors', 'Star', 'Sony', 'Zee', 'SET', 'Sab', 'And'
-];
+  const lower = message.toLowerCase();
 
-function isHindi(name, group) {
-  const text = (name + ' ' + group).toLowerCase();
-  // India group = Hindi priority
-  if (group === 'India') return true;
-  return HINDI_KEYWORDS.some(k => text.includes(k.toLowerCase()));
-}
+  // Smart routing
+  if (lower.includes('tv') || lower.includes('channel') || lower.includes('live'))
+    return json({ worker: '📺 Live TV', icon: '📺', response: 'Live TV page par jaake channels dekho! Hindi priority channels upar dikhenge. Koi bhi channel click karo aur direct play hoga. 🎬' });
 
-async function parseM3U(text) {
-  const lines = text.split('\n');
-  const channels = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.startsWith('#EXTINF:')) {
-      // Find the next non-comment, non-empty line (the URL)
-      let url = '';
-      for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
-        const l = lines[j].trim();
-        if (l && !l.startsWith('#')) { url = l; break; }
-      }
-      if (!url) continue;
+  if (lower.includes('movie') || lower.includes('film'))
+    return json({ worker: '🎬 Movies', icon: '🎬', response: 'Movies page par TMDB se Hindi aur English movies available hain. Search ya category choose karo! 🔥' });
 
-      // Name: everything after the last comma
-      const commaIdx = line.lastIndexOf(',');
-      const name = commaIdx > -1 ? line.substring(commaIdx + 1).trim() : 'Unknown';
+  if (lower.includes('book') || lower.includes('padh') || lower.includes('read'))
+    return json({ worker: '📚 Books', icon: '📚', response: 'Books page par Open Library se free books milenge. Search karo ya famous books check karo! 📖' });
 
-      // Group from group-title attribute
-      const groupMatch = line.match(/group-title="([^"]+)"/);
-      let group = groupMatch ? groupMatch[1] : '';
+  if (lower.includes('telegram') || lower.includes('group') || lower.includes('data'))
+    return json({ worker: '📱 Telegram', icon: '📱', response: 'Telegram group ka saara data website par hai! Messages, photos, videos, documents sab browse kar sakte ho. Catalog page par jaao! 📂' });
 
-      // Infer group from tvg-id if no group-title
-      if (!group) {
-        const tvgMatch = line.match(/tvg-id="([^"]+)"/);
-        if (tvgMatch) {
-          const tvgId = tvgMatch[1];
-          // Extract country from tvg-id like "AajTak.in@SD"
-          const countryMatch = tvgId.match(/\.([a-z]{2})@/i);
-          if (countryMatch) {
-            const cc = countryMatch[1].toUpperCase();
-            if (cc === 'IN') group = 'India';
-            else if (cc === 'US') group = 'USA';
-            else if (cc === 'GB') group = 'UK';
-            else group = cc;
-          }
-        }
-      }
-      if (!group) group = 'Other';
+  if (lower.includes('status') || lower.includes('health'))
+    return json({ worker: '⚙️ Status', icon: '⚙️', response: 'Saare systems online hain! Workers, KV, D1, Cron sab active hai. Workers page par detailed status dekh sakte ho. ✅' });
 
-      // Logo
-      const logoMatch = line.match(/tvg-logo="([^"]+)"/);
-      const logo = logoMatch ? logoMatch[1] : '';
+  if (lower.includes('search') || lower.includes('dhundh') || lower.includes('khoj'))
+    return json({ worker: '🔍 Search', icon: '🔍', response: 'Search page par movies, books, aur Telegram data sab ek saath search kar sakte ho. Koi bhi keyword dalo! 🎯' });
 
-      channels.push({ name, group, logo, url });
-    }
-  }
-  return channels;
-}
-
-async function handleLiveTV(url, env) {
-  const cacheKey = 'live_tv_v2';
-  if (env.CACHE) {
-    const cached = await env.CACHE.get(cacheKey);
-    if (cached) return json(JSON.parse(cached));
-  }
-
-  const allChannels = [];
-  const errors = [];
-
-  for (const source of IPTV_SOURCES) {
+  // Default — try Cloudflare AI
+  if (env.AI) {
     try {
-      const resp = await fetch(source.url, {
-        headers: { 'User-Agent': 'JDUB-Hub/3.1' },
-        cf: { cacheTtl: 3600 }
+      const resp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [
+          { role: 'system', content: 'NJSoft Stream AI assistant. Reply in Hindi/Hinglish. Be helpful, friendly. We offer: Live TV, Movies (TMDB), Books (Open Library), Telegram group data browsing, AI chat.' },
+          { role: 'user', content: message },
+        ],
+        max_tokens: 300,
       });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const text = await resp.text();
-      const channels = await parseM3U(text);
-      for (const ch of channels) {
-        ch.source = source.name;
-        ch.hindi = isHindi(ch.name, ch.group);
-        allChannels.push(ch);
-      }
-    } catch (e) {
-      errors.push({ source: source.name, error: e.message });
-    }
+      return json({ worker: '🤖 Main AI', icon: '🤖', response: resp.response || resp });
+    } catch (e) {}
   }
 
-  allChannels.sort((a, b) => (a.hindi ? 0 : 1) - (b.hindi ? 0 : 1));
-
-  const hindiChannels = allChannels.filter(ch => ch.hindi);
-  const otherChannels = allChannels.filter(ch => !ch.hindi);
-  const groups = {};
-  for (const ch of allChannels) {
-    if (!groups[ch.group]) groups[ch.group] = 0;
-    groups[ch.group]++;
-  }
-
-  const result = {
-    total: allChannels.length,
-    hindi: hindiChannels.length,
-    other: otherChannels.length,
-    groups,
-    channels: [...hindiChannels.slice(0, 150), ...otherChannels.slice(0, 150)],
-    errors
-  };
-
-  if (env.CACHE) {
-    await env.CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: 3600 });
-  }
-  return json(result);
-}
-
-async function handleLiveTVStream(url, env) {
-  const streamUrl = url.searchParams.get('url');
-  if (!streamUrl) return json({ error: 'url param required' }, 400);
-  try {
-    const resp = await fetch(streamUrl, {
-      headers: { 'User-Agent': 'JDUB-Hub/3.1' },
-      cf: { cacheTtl: 60 }
-    });
-    return new Response(resp.body, {
-      status: resp.status,
-      headers: {
-        'Content-Type': resp.headers.get('Content-Type') || 'application/octet-stream',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=60'
-      }
-    });
-  } catch (e) {
-    return json({ error: e.message }, 502);
-  }
-}
-
-// ============================================================
-// TELEGRAM WEBHOOK
-// ============================================================
-async function handleTelegramWebhook(request, env) {
-  try {
-    const update = await request.json();
-    const msg = update.message;
-    if (!msg || !msg.text) return json({ ok: true });
-
-    const chatId = msg.chat.id;
-    const text = msg.text.trim().toLowerCase();
-    let reply = '';
-
-    if (text === '/start') {
-      reply = '⚡ *JDUB Hub Bot*\n\nCommands:\n/movies — Trending movies\n/books <query> — Book search\n/search <query> — Full search\n/live — Live TV channels\n/status — System status';
-    } else if (text === '/movies') {
-      reply = `🎬 Trending:\n${env.WORKER_URL || 'https://jdub-hub-worker.njcreative123.workers.dev'}/api/movies?type=popular`;
-    } else if (text.startsWith('/books')) {
-      const q = text.replace('/books', '').trim() || 'famous';
-      reply = `📚 Results:\n${env.WORKER_URL || 'https://jdub-hub-worker.njcreative123.workers.dev'}/api/books?q=${encodeURIComponent(q)}`;
-    } else if (text.startsWith('/search')) {
-      const q = text.replace('/search', '').trim();
-      reply = `🔍 Results:\n${env.WORKER_URL || 'https://jdub-hub-worker.njcreative123.workers.dev'}/api/search?q=${encodeURIComponent(q)}`;
-    } else if (text === '/live') {
-      reply = `📺 Live TV:\n${env.WORKER_URL || 'https://jdub-hub.njcreative123.workers.dev'}`;
-    } else if (text === '/status') {
-      reply = `📊 System: Online\nKV: ${env.CACHE ? 'OK' : 'No'}\nD1: ${env.CATALOG_DB ? 'OK' : 'No'}`;
-    } else {
-      reply = 'Commands: /start /movies /books /search /live /status';
-    }
-
-    if (env.TELEGRAM_BOT_TOKEN) {
-      await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: reply, parse_mode: 'Markdown' })
-      });
-    }
-    return json({ ok: true });
-  } catch (e) {
-    return json({ error: e.message }, 500);
-  }
+  // Fallback
+  return json({
+    worker: '🤖 Main AI', icon: '🤖',
+    response: `Bhai "${message}" ke baare mein poocha hai! 🤔\n\nMain NJSoft Stream ka AI hun. Ye cheezein kar sakta hun:\n\n📺 Live TV — Hindi channels free\n🎬 Movies — TMDB se Hindi/English\n📚 Books — Open Library se free\n📱 Telegram — Group data browse\n🔍 Search — Sab kuch ek saath\n\nKuch specific poocho! 😊`,
+  });
 }
 
 // ============================================================
 // CATALOG — D1
 // ============================================================
 async function initCatalogTable(db) {
-  await db.prepare(`CREATE TABLE IF NOT EXISTS catalog (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    type TEXT DEFAULT 'movie',
-    description TEXT,
-    image TEXT,
-    link TEXT,
-    year TEXT,
-    rating REAL DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`).run();
+  try {
+    await db.prepare('CREATE TABLE IF NOT EXISTS catalog (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, type TEXT DEFAULT "movie", description TEXT DEFAULT "", image TEXT DEFAULT "", link TEXT DEFAULT "", year TEXT DEFAULT "", rating REAL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)').run();
+  } catch (e) {}
 }
 
-async function handleCatalogList(url, env) {
-  if (!env.CATALOG_DB) return json({ results: [], error: 'D1 not configured' });
+async function handleCatalogList(env) {
+  if (!env.CATALOG_DB) return json({ results: [] });
   try {
     await initCatalogTable(env.CATALOG_DB);
-    const type = url.searchParams.get('type');
-    const sql = type
-      ? 'SELECT * FROM catalog WHERE type = ?1 ORDER BY created_at DESC LIMIT 50'
-      : 'SELECT * FROM catalog ORDER BY created_at DESC LIMIT 50';
-    const { results } = type
-      ? await env.CATALOG_DB.prepare(sql).bind(type).all()
-      : await env.CATALOG_DB.prepare(sql).all();
+    const { results } = await env.CATALOG_DB.prepare('SELECT * FROM catalog ORDER BY created_at DESC LIMIT 50').all();
     return json({ results });
   } catch (e) {
-    return json({ error: e.message }, 500);
+    return json({ results: [], error: e.message });
   }
 }
 
@@ -1366,12 +588,11 @@ async function handleCatalogAdd(request, env) {
     const item = await request.json();
     if (!item.title) return json({ error: 'title required' }, 400);
     await initCatalogTable(env.CATALOG_DB);
-    await env.CATALOG_DB.prepare(
-      'INSERT INTO catalog (title, type, description, image, link, year, rating) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)'
-    ).bind(item.title, item.type || 'movie', item.description || '', item.image || '', item.link || '', item.year || '', Number(item.rating) || 0).run();
-    if (env.CACHE) await env.CACHE.delete('catalog_list');
-    return json({ ok: true, added: item.title });
-  } catch (e) { return json({ error: e.message }, 500); }
+    await env.CATALOG_DB.prepare('INSERT INTO catalog (title, type, description, image, link, year, rating) VALUES (?1,?2,?3,?4,?5,?6,?7)').bind(item.title, item.type || 'movie', item.description || '', item.image || '', item.link || '', item.year || '', Number(item.rating) || 0).run();
+    return json({ ok: true });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
 }
 
 async function handleCatalogDelete(url, env) {
@@ -1380,78 +601,781 @@ async function handleCatalogDelete(url, env) {
     const id = url.searchParams.get('id');
     if (!id) return json({ error: 'id required' }, 400);
     await env.CATALOG_DB.prepare('DELETE FROM catalog WHERE id = ?1').bind(id).run();
-    return json({ ok: true, deleted: id });
-  } catch (e) { return json({ error: e.message }, 500); }
+    return json({ ok: true });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
 }
 
 // ============================================================
-// MEDIA — R2
+// STATUS
 // ============================================================
-async function handleMediaUpload(request, env) {
-  if (!env.MEDIA_BUCKET) return json({ error: 'R2 not configured' }, 500);
-  const url = new URL(request.url);
-  const filename = url.pathname.split('/').pop();
-  try {
-    await env.MEDIA_BUCKET.put(filename, request.body, {
-      httpMetadata: { contentType: request.headers.get('Content-Type') || 'application/octet-stream' }
-    });
-    return json({ ok: true, filename, url: `/api/media/${filename}` });
-  } catch (e) { return json({ error: e.message }, 500); }
-}
+async function handleStatus(env) {
+  const services = {
+    worker: 'online',
+    kv: env.KV_STORE ? 'connected' : 'not_configured',
+    d1: env.CATALOG_DB ? 'connected' : 'not_configured',
+    tg_messages: env.KV_STORE ? 'connected' : 'not_configured',
+    tmdb: env.TMDB_KEY ? 'configured' : 'needs_key',
+    ai: env.AI ? 'available' : 'fallback_mode',
+    iptv: 'ready',
+  };
 
-async function handleMediaGet(path, env) {
-  if (!env.MEDIA_BUCKET) return json({ error: 'R2 not configured' }, 500);
-  const filename = path.replace('/api/media/', '');
-  try {
-    const object = await env.MEDIA_BUCKET.get(filename);
-    if (!object) return json({ error: 'not found' }, 404);
-    return new Response(object.body, {
-      headers: { 'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream', 'Cache-Control': 'public, max-age=31536000' }
-    });
-  } catch (e) { return json({ error: e.message }, 500); }
-}
+  if (env.KV_STORE) {
+    try {
+      await env.KV_STORE.put('_health', Date.now().toString());
+      services.kv = 'live';
+    } catch (e) {}
+  }
+  if (env.KV_STORE && env.TG_CHAT_ID) {
+    try {
+      const index = await env.KV_STORE.get(`index:${env.TG_CHAT_ID}`, { type: 'json' });
+      services.tg_messages = index ? `${index.ids?.length || 0} messages indexed` : 'empty';
+    } catch (e) {}
+  }
 
-// ============================================================
-// ANALYTICS
-// ============================================================
-async function handleAnalytics(env) {
-  let pageviews = 0;
-  if (env.CACHE) pageviews = Number(await env.CACHE.get('pageview_counter')) || 0;
-  return json({ service: 'cloudflare_analytics_engine', status: env.ANALYTICS ? 'enabled' : 'not_configured', pageviews_approximate: pageviews });
+  return json({ status: 'ok', service: 'NJSoft Stream', version: '4.0.0', services });
 }
 
 // ============================================================
-// KV CACHE
+// SCHEDULED SYNC
 // ============================================================
-async function handleCacheDemo(env) {
-  if (!env.CACHE) return json({ error: 'KV not configured' }, 500);
-  const current = Number(await env.CACHE.get('demo_counter')) || 0;
-  await env.CACHE.put('demo_counter', (current + 1).toString());
-  await env.CACHE.put('pageview_counter', (Number(await env.CACHE.get('pageview_counter')) || 0) + 1);
-  return json({ counter: current + 1, kv_status: 'online' });
+async function runScheduledSync(env) {
+  // Sync Telegram messages
+  if (env.TG_BOT_TOKEN) {
+    try { await handleTelegramSync(env); } catch (e) {}
+  }
+  // Refresh Live TV cache
+  if (env.KV_STORE) {
+    try { await env.KV_STORE.delete('livetv_all'); } catch (e) {}
+  }
+  // Refresh movies cache
+  if (env.KV_STORE) {
+    try { await env.KV_STORE.delete('movies_popular'); } catch (e) {}
+  }
 }
 
+
 // ============================================================
-// DAILY SYNC
+// FRONTEND — HTML
 // ============================================================
-async function runDailySync(env) {
-  const log = { ts: new Date().toISOString(), synced: [] };
-  try {
-    const movies = await handleMovies(new URL('https://x/?type=popular'), env);
-    const data = await movies.json();
-    if (env.CACHE) {
-      await env.CACHE.put('trending_movies', JSON.stringify(data.results || []), { expirationTtl: 86400 });
-      log.synced.push('trending_movies');
+const INDEX_HTML = `<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NJSoft Stream — Live TV, Movies, Books, AI</title>
+<meta name="description" content="NJSoft Stream — Free Live TV, Movies, Books, Telegram data, AI. Powered by Cloudflare.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎬</text></svg>">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- LOADER -->
+<div class="loader" id="loader">
+  <div class="ld-box">
+    <div class="ld-logo">🎬</div>
+    <div class="ld-name">NJSoft<span>Stream</span></div>
+    <div class="ld-bar"><div class="ld-fill"></div></div>
+    <div class="ld-sub">Initializing services...</div>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="app" id="app">
+
+  <!-- SIDEBAR -->
+  <nav class="side" id="side">
+    <div class="side-head">
+      <div class="logo">🎬</div>
+      <div class="brand">NJSoft<span>Stream</span></div>
+    </div>
+    <div class="nav-list">
+      <button class="nav-btn active" data-page="home" onclick="N.go('home')"><span>🏠</span>Home</button>
+      <button class="nav-btn" data-page="tv" onclick="N.go('tv')"><span>📺</span>Live TV</button>
+      <button class="nav-btn" data-page="tg" onclick="N.go('tg')"><span>📱</span>Telegram</button>
+      <button class="nav-btn" data-page="movies" onclick="N.go('movies')"><span>🎬</span>Movies</button>
+      <button class="nav-btn" data-page="books" onclick="N.go('books')"><span>📚</span>Books</button>
+      <button class="nav-btn" data-page="search" onclick="N.go('search')"><span>🔍</span>Search</button>
+      <button class="nav-btn" data-page="ai" onclick="N.go('ai')"><span>🤖</span>AI Chat</button>
+      <button class="nav-btn" data-page="catalog" onclick="N.go('catalog')"><span>📁</span>Catalog</button>
+    </div>
+    <div class="side-status"><div class="dot green"></div> All Systems Live</div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="main" id="main">
+
+    <!-- HOME -->
+    <section class="page active" id="pg-home">
+      <div class="page-head">
+        <h1>🎬 NJSoft Stream</h1>
+        <p>Live TV • Movies • Books • Telegram • AI — Sab Kuch Free</p>
+      </div>
+      <div class="stats-grid" id="homeStats">
+        <div class="stat-card"><div class="stat-icon">📺</div><div class="stat-val" id="stTV">...</div><div class="stat-label">Live TV</div></div>
+        <div class="stat-card"><div class="stat-icon">📱</div><div class="stat-val" id="stTG">...</div><div class="stat-label">TG Messages</div></div>
+        <div class="stat-card"><div class="stat-icon">🎬</div><div class="stat-val" id="stMovies">...</div><div class="stat-label">Movies</div></div>
+        <div class="stat-card"><div class="stat-icon">🤖</div><div class="stat-val">Active</div><div class="stat-label">AI Online</div></div>
+      </div>
+      <div class="quick-grid">
+        <button class="qcard" onclick="N.go('tv')"><span class="qi">📺</span><span>Live TV</span><span class="qd">Hindi channels free</span></button>
+        <button class="qcard" onclick="N.go('tg')"><span class="qi">📱</span><span>Telegram Data</span><span class="qd">Browse group messages</span></button>
+        <button class="qcard" onclick="N.go('movies')"><span class="qi">🎬</span><span>Movies</span><span class="qd">TMDB Hindi & English</span></button>
+        <button class="qcard" onclick="N.go('books')"><span class="qi">📚</span><span>Books</span><span class="qd">Open Library free</span></button>
+        <button class="qcard" onclick="N.go('ai')"><span class="qi">🤖</span><span>AI Chat</span><span class="qd">Ask anything</span></button>
+        <button class="qcard" onclick="N.go('search')"><span class="qi">🔍</span><span>Search</span><span class="qd">All sources at once</span></button>
+      </div>
+      <div class="services-section">
+        <h2>⚡ Live Services</h2>
+        <div class="svc-grid" id="svcGrid">
+          <div class="svc"><div class="svc-icon">⚡</div><div class="svc-info"><h4>Cloudflare Worker</h4><p>Edge computing</p><span class="badge live">● Online</span></div></div>
+          <div class="svc"><div class="svc-icon">🗄️</div><div class="svc-info"><h4>KV Storage</h4><p>Telegram data cache</p><span class="badge live" id="svcKV">● Ready</span></div></div>
+          <div class="svc"><div class="svc-icon">💾</div><div class="svc-info"><h4>D1 Database</h4><p>SQLite catalog</p><span class="badge live" id="svcD1">● Ready</span></div></div>
+          <div class="svc"><div class="svc-icon">📺</div><div class="svc-info"><h4>IPTV Parser</h4><p>Free live channels</p><span class="badge live">● Active</span></div></div>
+          <div class="svc"><div class="svc-icon">📱</div><div class="svc-info"><h4>Telegram Bot</h4><p>Group data sync</p><span class="badge live" id="svcTG">● Ready</span></div></div>
+          <div class="svc"><div class="svc-icon">🤖</div><div class="svc-info"><h4>AI Engine</h4><p>LLM powered chat</p><span class="badge live">● Online</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LIVE TV -->
+    <section class="page" id="pg-tv">
+      <div class="page-head"><h1>📺 Live TV</h1><p>Free IPTV — Hindi priority | <span id="tvTotal">0</span> channels</p></div>
+      <div class="tv-player-wrap">
+        <div class="tv-player-box" id="tvPlayerBox">
+          <div class="tv-placeholder" id="tvPlaceholder"><span>📺</span><p>Channel select karo</p></div>
+          <video id="tvVideo" controls style="display:none;width:100%;height:100%"></video>
+        </div>
+        <div class="tv-bar" id="tvBar" style="display:none"><span class="live-dot">● LIVE</span><span id="tvPlaying">—</span></div>
+      </div>
+      <div class="filter-bar" id="tvFilters"></div>
+      <div class="search-bar"><input id="tvSearch" placeholder="Channel search karo..." oninput="N.filterTV()"></div>
+      <div class="tv-grid" id="tvGrid"><div class="loading">📺 Loading channels...</div></div>
+    </section>
+
+    <!-- TELEGRAM -->
+    <section class="page" id="pg-tg">
+      <div class="page-head"><h1>📱 Telegram Group Data</h1><p>All messages, photos, videos, files — readable & downloadable</p></div>
+      <div class="tg-stats" id="tgStats"></div>
+      <div class="filter-bar">
+        <button class="fbtn active" onclick="N.filterTG('all',this)">All</button>
+        <button class="fbtn" onclick="N.filterTG('photo',this)">📷 Photos</button>
+        <button class="fbtn" onclick="N.filterTG('video',this)">🎥 Videos</button>
+        <button class="fbtn" onclick="N.filterTG('document',this)">📄 Documents</button>
+        <button class="fbtn" onclick="N.filterTG('audio',this)">🎵 Audio</button>
+        <button class="fbtn" onclick="N.filterTG('text',this)">💬 Text</button>
+      </div>
+      <div class="search-bar"><input id="tgSearch" placeholder="Search messages..." oninput="N.filterTGMessages()"></div>
+      <div id="tgMessages" class="tg-list"><div class="loading">Loading Telegram data...</div></div>
+    </section>
+
+    <!-- MOVIES -->
+    <section class="page" id="pg-movies">
+      <div class="page-head"><h1>🎬 Movies</h1><p>TMDB — Hindi & English</p></div>
+      <div class="filter-bar">
+        <button class="fbtn active" onclick="N.loadMovies('popular',this)">🔥 Popular</button>
+        <button class="fbtn" onclick="N.loadMovies('top_rated',this)">⭐ Top Rated</button>
+        <button class="fbtn" onclick="N.loadMovies('now_playing',this)">🎥 Now Playing</button>
+        <button class="fbtn" onclick="N.loadMovies('upcoming',this)">🗓️ Upcoming</button>
+      </div>
+      <div id="moviesGrid" class="media-grid"><div class="loading">Loading movies...</div></div>
+    </section>
+
+    <!-- BOOKS -->
+    <section class="page" id="pg-books">
+      <div class="page-head"><h1>📚 Books</h1><p>Open Library — Free Reading</p></div>
+      <div class="search-bar"><input id="bookSearch" placeholder="Search books..." onkeydown="if(event.key==='Enter')N.loadBooks()"><button onclick="N.loadBooks()">Search</button></div>
+      <div class="filter-bar">
+        <button class="fbtn active" onclick="N.loadBooks('hindi',this)">🇮🇳 Hindi</button>
+        <button class="fbtn" onclick="N.loadBooks('famous',this)">📖 Famous</button>
+        <button class="fbtn" onclick="N.loadBooks('science',this)">🔬 Science</button>
+        <button class="fbtn" onclick="N.loadBooks('fiction',this)">🎭 Fiction</button>
+      </div>
+      <div id="booksGrid" class="media-grid"><div class="loading">Loading books...</div></div>
+    </section>
+
+    <!-- SEARCH -->
+    <section class="page" id="pg-search">
+      <div class="page-head"><h1>🔍 Search Everything</h1><p>Movies + Books + Telegram — ek saath</p></div>
+      <div class="search-bar big"><input id="searchInput" placeholder="Movie, book, ya kuchh bhi search karo..." onkeydown="if(event.key==='Enter')N.doSearch()"><button onclick="N.doSearch()">🔍 Search</button></div>
+      <div id="searchResults" class="search-results"></div>
+    </section>
+
+    <!-- AI CHAT -->
+    <section class="page" id="pg-ai">
+      <div class="page-head"><h1>🤖 AI Chat</h1><p>Main AI + Worker AIs</p></div>
+      <div class="chat-box">
+        <div class="chat-messages" id="chatMsgs">
+          <div class="msg ai"><div class="msg-label">🤖 NJSoft AI</div><p>Welcome bhai! Kuchh bhi poocho — movies, books, live TV, Telegram data, ya koi bhi sawaal 🎉</p>
+            <div class="quick-asks">
+              <button onclick="N.chat('Live TV dikhao')">📺 Live TV</button>
+              <button onclick="N.chat('Movies dikhao')">🎬 Movies</button>
+              <button onclick="N.chat('Books dikhao')">📚 Books</button>
+              <button onclick="N.chat('Telegram data')">📱 Telegram</button>
+              <button onclick="N.chat('Status batao')">⚙️ Status</button>
+            </div>
+          </div>
+        </div>
+        <div class="chat-input">
+          <input id="chatIn" placeholder="Message type karo..." onkeydown="if(event.key==='Enter'){N.chat(this.value);this.value='';}">
+          <button onclick="N.chat(document.getElementById('chatIn').value);document.getElementById('chatIn').value='';">Send ⚡</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- CATALOG -->
+    <section class="page" id="pg-catalog">
+      <div class="page-head"><h1>📁 My Catalog</h1><p>D1 Database — Apna content</p></div>
+      <div class="add-form">
+        <input id="catTitle" placeholder="Title...">
+        <select id="catType"><option value="movie">🎬 Movie</option><option value="book">📚 Book</option><option value="series">📺 Series</option></select>
+        <input id="catDesc" placeholder="Description...">
+        <button onclick="N.addToCatalog()">➕ Add</button>
+      </div>
+      <div id="catalogList" class="media-grid"><div class="loading">Loading...</div></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- MOBILE TOGGLE -->
+<button class="mobile-toggle" onclick="document.getElementById('side').classList.toggle('open')">☰</button>
+
+<script src="/js/app.js"></script>
+</body>
+</html>`;
+
+// ============================================================
+// FRONTEND — CSS
+// ============================================================
+const STYLE_CSS = `
+:root{--bg:#09090b;--card:#18181b;--card2:#27272a;--border:#3f3f46;--accent:#22d3ee;--accent2:#a855f7;--green:#22c55e;--red:#ef4444;--text:#fafafa;--text2:#a1a1aa;--radius:12px}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}
+
+/* Loader */
+.loader{position:fixed;inset:0;z-index:999;background:var(--bg);display:flex;align-items:center;justify-content:center}
+.loader.hide{opacity:0;pointer-events:none;transition:opacity .4s}
+.ld-box{text-align:center}
+.ld-logo{font-size:60px;animation:pulse 1s infinite}
+.ld-name{font-size:26px;font-weight:800;margin:10px 0;color:var(--accent)}.ld-name span{color:var(--accent2)}
+.ld-bar{width:200px;height:3px;background:var(--card2);border-radius:3px;overflow:hidden;margin:10px auto}
+.ld-fill{height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));animation:fillB 2s forwards}
+.ld-sub{color:var(--text2);font-size:12px}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+@keyframes fillB{to{width:100%}}
+
+/* Layout */
+.app{display:flex;min-height:100vh;opacity:0;transition:opacity .5s}
+.app.vis{opacity:1}
+
+/* Sidebar */
+.side{width:220px;background:var(--card);border-right:1px solid var(--border);padding:16px;display:flex;flex-direction:column;position:fixed;top:0;bottom:0;z-index:50}
+.side-head{display:flex;align-items:center;gap:8px;margin-bottom:20px}
+.logo{font-size:24px}.brand{font-size:18px;font-weight:800;color:var(--accent)}.brand span{color:var(--accent2)}
+.nav-list{flex:1;display:flex;flex-direction:column;gap:2px}
+.nav-btn{display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;border:none;border-radius:8px;background:transparent;color:var(--text2);font-size:13px;cursor:pointer;text-align:left;transition:.15s}
+.nav-btn:hover{background:var(--card2);color:var(--text)}
+.nav-btn.active{background:linear-gradient(135deg,rgba(34,211,238,.12),rgba(168,85,247,.12));color:var(--accent);font-weight:600}
+.nav-btn span{width:18px;text-align:center;font-size:15px}
+.side-status{display:flex;align-items:center;gap:6px;padding:10px;background:var(--card2);border-radius:8px;font-size:11px;color:var(--green)}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}.green{background:var(--green);animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* Main */
+.main{margin-left:220px;flex:1;padding:24px;min-height:100vh}
+.page{display:none}.page.active{display:block}
+
+/* Page head */
+.page-head{margin-bottom:24px}.page-head h1{font-size:26px;font-weight:800}.page-head p{color:var(--text2);margin-top:4px;font-size:13px}
+
+/* Stats */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center}
+.stat-icon{font-size:28px;margin-bottom:6px}.stat-val{font-size:22px;font-weight:800;color:var(--accent)}.stat-label{font-size:11px;color:var(--text2);margin-top:4px}
+
+/* Quick links */
+.quick-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
+.qcard{display:flex;flex-direction:column;align-items:center;gap:4px;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:.2s;text-align:center}
+.qcard:hover{border-color:var(--accent);transform:translateY(-2px)}
+.qi{font-size:32px}.qd{font-size:11px;color:var(--text2);margin-top:4px}
+
+/* Services */
+.services-section h2{font-size:18px;margin-bottom:12px}
+.svc-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.svc{display:flex;gap:12px;padding:14px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius)}
+.svc-icon{font-size:24px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:var(--card2);border-radius:10px;flex-shrink:0}
+.svc-info h4{font-size:13px;font-weight:600}.svc-info p{font-size:11px;color:var(--text2)}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}.badge.live{background:rgba(34,197,94,.15);color:var(--green)}
+
+/* Filters */
+.filter-bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.fbtn{padding:6px 14px;border:1px solid var(--border);border-radius:20px;background:var(--card);color:var(--text2);font-size:12px;cursor:pointer;transition:.15s}
+.fbtn:hover{border-color:var(--accent);color:var(--text)}.fbtn.active{background:var(--accent);color:#000;border-color:var(--accent);font-weight:600}
+
+/* Search */
+.search-bar{display:flex;gap:8px;margin-bottom:16px}
+.search-bar input,.search-bar button{padding:10px 14px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none}
+.search-bar input{flex:1}.search-bar input:focus{border-color:var(--accent)}
+.search-bar button{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff;font-weight:600;cursor:pointer;white-space:nowrap}
+.search-bar.big input{font-size:16px;padding:14px}
+
+/* Media grid */
+.media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.media-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:.2s}
+.media-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.media-card img{width:100%;height:240px;object-fit:cover;background:var(--card2)}
+.media-card .info{padding:10px}.media-card .info h4{font-size:13px;font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.media-card .info .meta{font-size:11px;color:var(--text2);display:flex;gap:8px}
+.media-card .info .read-link{display:inline-block;margin-top:6px;font-size:12px;color:var(--accent);text-decoration:none}
+
+/* Search results */
+.search-results{display:flex;flex-direction:column;gap:10px}
+.sr-card{display:flex;gap:14px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;transition:.2s}
+.sr-card:hover{border-color:var(--accent)}
+.sr-img{width:70px;height:100px;object-fit:cover;border-radius:8px;background:var(--card2)}
+.sr-info{flex:1}.sr-info h3{font-size:14px;font-weight:600;margin-bottom:4px}
+.sr-meta{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+.sr-tag{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}
+.sr-tag.movie{background:rgba(34,211,238,.15);color:var(--accent)}
+.sr-tag.book{background:rgba(168,85,247,.15);color:var(--accent2)}
+.sr-tag.tg{background:rgba(34,197,94,.15);color:var(--green)}
+
+/* TV Player */
+.tv-player-wrap{margin-bottom:16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.tv-player-box{width:100%;height:380px;background:#000;display:flex;align-items:center;justify-content:center}
+.tv-placeholder{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--text2)}.tv-placeholder span{font-size:56px}
+.tv-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--card2);border-top:1px solid var(--border)}
+.live-dot{color:var(--red);font-weight:700;font-size:12px;animation:blink 1.5s infinite}
+.tv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.tv-card{display:flex;align-items:center;gap:10px;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:.2s}
+.tv-card:hover{border-color:var(--accent);transform:translateY(-1px)}
+.tv-card-img{width:42px;height:42px;border-radius:8px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:20px;overflow:hidden;flex-shrink:0}
+.tv-card-img img{width:100%;height:100%;object-fit:cover}
+.tv-card-info{flex:1;min-width:0}
+.tv-card-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv-card-group{font-size:10px;color:var(--text2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Telegram */
+.tg-stats{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.tg-stat{padding:10px 16px;background:var(--card);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:6px;font-size:13px}
+.tg-stat .num{font-weight:700;color:var(--accent)}
+.tg-list{display:flex;flex-direction:column;gap:8px}
+.tg-msg{padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);transition:.15s}
+.tg-msg:hover{border-color:var(--accent)}
+.tg-msg-header{display:flex;justify-content:space-between;margin-bottom:6px;font-size:11px;color:var(--text2)}
+.tg-msg-from{font-weight:600;color:var(--accent)}
+.tg-msg-text{font-size:13px;line-height:1.5;margin-bottom:6px;word-break:break-word}
+.tg-msg-media{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.tg-media-tag{padding:3px 8px;border-radius:6px;font-size:10px;background:var(--card2);color:var(--text2);display:inline-flex;align-items:center;gap:4px}
+.tg-media-tag a{color:var(--accent);text-decoration:none}
+
+/* Chat */
+.chat-box{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);display:flex;flex-direction:column;height:calc(100vh - 160px)}
+.chat-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:80%;padding:12px 16px;border-radius:12px;font-size:13px;line-height:1.6}
+.msg.ai{background:var(--card2);border:1px solid var(--border);align-self:flex-start}
+.msg.user{background:linear-gradient(135deg,rgba(34,211,238,.15),rgba(168,85,247,.15));align-self:flex-end}
+.msg-label{font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px}
+.quick-asks{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.quick-asks button{padding:5px 10px;background:var(--bg);border:1px solid var(--border);border-radius:14px;font-size:11px;color:var(--text2);cursor:pointer;transition:.15s}
+.quick-asks button:hover{border-color:var(--accent);color:var(--accent)}
+.chat-input{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border)}
+.chat-input input{flex:1;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none}
+.chat-input input:focus{border-color:var(--accent)}
+.chat-input button{padding:10px 16px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer}
+
+/* Catalog */
+.add-form{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.add-form input,.add-form select{padding:10px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none}
+.add-form input{flex:1;min-width:120px}
+.add-form button{padding:10px 16px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer}
+
+/* Empty/Loading/Error */
+.loading{text-align:center;padding:40px;color:var(--text2);font-size:14px}
+.empty{text-align:center;padding:40px;color:var(--text2)}
+.empty span{font-size:40px;display:block;margin-bottom:10px}
+
+/* Mobile toggle */
+.mobile-toggle{display:none;position:fixed;top:12px;left:12px;z-index:100;padding:8px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:18px;cursor:pointer}
+
+@media(max-width:768px){
+  .side{transform:translateX(-100%);transition:.3s;z-index:60}.side.open{transform:translateX(0)}
+  .main{margin-left:0;padding:16px;padding-top:50px}
+  .mobile-toggle{display:block}
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+  .quick-grid{grid-template-columns:repeat(2,1fr)}
+  .svc-grid{grid-template-columns:1fr}
+  .tv-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+  .media-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+  .chat-box{height:calc(100vh - 100px)}
+}
+`;
+
+// ============================================================
+// FRONTEND — JavaScript
+// ============================================================
+const APP_JS = `
+(function(){
+'use strict';
+
+var API = '';
+var tgMessages = [];
+var tgCurrentType = 'all';
+var tvAllChannels = [];
+var tvCurrentGroup = 'all';
+
+// --- Init ---
+window.addEventListener('load', function(){
+  setTimeout(function(){
+    document.getElementById('loader').classList.add('hide');
+    document.getElementById('app').classList.add('vis');
+    N.go('home');
+  }, 1800);
+});
+
+// --- Navigation ---
+var N = window.N = {};
+N.go = function(page){
+  document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active') });
+  document.querySelectorAll('.nav-btn').forEach(function(b){ b.classList.remove('active') });
+  var pg = document.getElementById('pg-'+page);
+  if(pg) pg.classList.add('active');
+  var btn = document.querySelector('[data-page="'+page+'"]');
+  if(btn) btn.classList.add('active');
+  document.getElementById('side').classList.remove('open');
+
+  if(page==='home') N.loadHome();
+  if(page==='tv') N.loadTV();
+  if(page==='tg') N.loadTG();
+  if(page==='movies') N.loadMovies('popular');
+  if(page==='books') N.loadBooks('hindi');
+  if(page==='catalog') N.loadCatalog();
+};
+
+// --- HOME ---
+N.loadHome = async function(){
+  try{
+    var r = await fetch(API+'/api/status');
+    var d = await r.json();
+    document.getElementById('svcKV').textContent = d.services.kv==='live'?'● Live':'● '+d.services.kv;
+    document.getElementById('svcD1').textContent = '● '+d.services.d1;
+    document.getElementById('svcTG').textContent = '● '+d.services.tg_messages;
+  }catch(e){}
+
+  try{
+    var r2 = await fetch(API+'/api/live-tv');
+    var d2 = await r2.json();
+    document.getElementById('stTV').textContent = d2.total+' ch';
+  }catch(e){document.getElementById('stTV').textContent='0';}
+
+  try{
+    var r3 = await fetch(API+'/api/telegram/stats');
+    var d3 = await r3.json();
+    document.getElementById('stTG').textContent = d3.total||d3.indexed||'0';
+  }catch(e){document.getElementById('stTG').textContent='0';}
+
+  document.getElementById('stMovies').textContent='10+';
+};
+
+// --- LIVE TV ---
+N.loadTV = async function(){
+  var grid = document.getElementById('tvGrid');
+  grid.innerHTML='<div class="loading">📺 Loading channels...</div>';
+  try{
+    var r = await fetch(API+'/api/live-tv');
+    var d = await r.json();
+    tvAllChannels = d.channels||[];
+    document.getElementById('tvTotal').textContent = d.total||0;
+
+    // Build filters
+    var fh = '<button class="fbtn active" onclick="N.tvFilterGroup(\\'all\\',this)">All ('+d.total+')</button>';
+    fh += '<button class="fbtn" onclick="N.tvFilterGroup(\\'hindi\\',this)">🇮🇳 Hindi ('+d.hindi+')</button>';
+    if(d.groups){
+      var sorted = Object.entries(d.groups).sort(function(a,b){return b[1]-a[1]}).slice(0,10);
+      sorted.forEach(function(g){fh+='<button class="fbtn" onclick="N.tvFilterGroup(\\''+g[0].replace(/'/g,"\\\\'")+'\\',this)">'+g[0]+' ('+g[1]+')</button>'});
     }
-  } catch (e) { log.error = e.message; }
-  try {
-    const books = await handleBooks(new URL('https://x/?q=popular'), env);
-    const data = await books.json();
-    if (env.CACHE) {
-      await env.CACHE.put('popular_books', JSON.stringify(data.results || []), { expirationTtl: 86400 });
-      log.synced.push('popular_books');
+    document.getElementById('tvFilters').innerHTML=fh;
+    N.renderTV(tvAllChannels);
+  }catch(e){
+    grid.innerHTML='<div class="empty"><span>📺</span>Channels load nahi ho paye. Try again.</div>';
+  }
+};
+
+N.renderTV = function(channels){
+  var grid = document.getElementById('tvGrid');
+  if(!channels.length){grid.innerHTML='<div class="empty"><span>📺</span>Koi channel nahi mila</div>';return;}
+  var h='<div class="tv-grid">';
+  channels.forEach(function(ch,i){
+    h+='<div class="tv-card" onclick="N.playTV('+i+')">';
+    h+='<div class="tv-card-img">'+(ch.logo?'<img src="'+ch.logo+'" onerror="this.parentElement.innerHTML=\\'📺\\'">':'📺')+'</div>';
+    h+='<div class="tv-card-info"><div class="tv-card-name">'+esc(ch.name)+'</div><div class="tv-card-group">'+esc(ch.group)+(ch.hindi?' 🇮🇳':'')+'</div></div>';
+    h+='</div>';
+  });
+  h+='</div>';
+  grid.innerHTML=h;
+};
+
+N.playTV = function(idx){
+  var ch = tvAllChannels[idx];
+  if(!ch||!ch.url)return;
+  var video = document.getElementById('tvVideo');
+  var ph = document.getElementById('tvPlaceholder');
+  var bar = document.getElementById('tvBar');
+  video.src = API+'/api/live-tv/stream?url='+encodeURIComponent(ch.url);
+  video.style.display='block';
+  ph.style.display='none';
+  bar.style.display='flex';
+  document.getElementById('tvPlaying').textContent=ch.name;
+  video.play().catch(function(e){
+    video.src=ch.url;
+    video.play().catch(function(e2){
+      ph.innerHTML='<span>❌</span><p>Play nahi ho raha</p><p style="font-size:11px;color:var(--text2)">'+e2.message+'</p>';
+      ph.style.display='flex';
+      video.style.display='none';
+      bar.style.display='none';
+    });
+  });
+};
+
+N.tvFilterGroup = function(group,btn){
+  tvCurrentGroup=group;
+  document.querySelectorAll('#tvFilters .fbtn').forEach(function(b){b.classList.remove('active')});
+  if(btn)btn.classList.add('active');
+  N.filterTV();
+};
+
+N.filterTV = function(){
+  var q = (document.getElementById('tvSearch').value||'').toLowerCase();
+  var filtered = tvAllChannels.filter(function(ch){
+    var matchGroup = tvCurrentGroup==='all'||(tvCurrentGroup==='hindi'&&ch.hindi)||ch.group.toLowerCase()===tvCurrentGroup.toLowerCase();
+    var matchQ = !q||ch.name.toLowerCase().includes(q)||ch.group.toLowerCase().includes(q);
+    return matchGroup&&matchQ;
+  });
+  N.renderTV(filtered);
+};
+
+// --- TELEGRAM ---
+N.loadTG = async function(){
+  document.getElementById('tgMessages').innerHTML='<div class="loading">📱 Loading Telegram data...</div>';
+  try{
+    var r = await fetch(API+'/api/telegram/stats');
+    var d = await r.json();
+    document.getElementById('tgStats').innerHTML=
+      '<div class="tg-stat">📱 <span class="num">'+(d.total||0)+'</span> Messages</div>'+
+      '<div class="tg-stat">📷 <span class="num">'+(d.photos||0)+'</span> Photos</div>'+
+      '<div class="tg-stat">🎥 <span class="num">'+(d.videos||0)+'</span> Videos</div>'+
+      '<div class="tg-stat">📄 <span class="num">'+(d.documents||0)+'</span> Documents</div>'+
+      '<div class="tg-stat">🎵 <span class="num">'+(d.audios||0)+'</span> Audio</div>';
+  }catch(e){document.getElementById('tgStats').innerHTML='';}
+
+  try{
+    var r2 = await fetch(API+'/api/telegram/messages?limit=200');
+    var d2 = await r2.json();
+    tgMessages = d2.messages||[];
+    N.renderTG(tgMessages);
+  }catch(e){
+    document.getElementById('tgMessages').innerHTML='<div class="empty"><span>📱</span>Telegram data load nahi ho paya. Bot ko group me add karo aur /api/telegram/sync call karo.</div>';
+  }
+};
+
+N.renderTG = function(msgs){
+  var el = document.getElementById('tgMessages');
+  if(!msgs.length){el.innerHTML='<div class="empty"><span>📱</span>Koi message nahi mila. Pehle Telegram bot ko group me add karo.</div>';return;}
+  var h='';
+  msgs.forEach(function(m){
+    var date = m.date?new Date(m.date*1000).toLocaleString('hi-IN'):'Unknown date';
+    h+='<div class="tg-msg">';
+    h+='<div class="tg-msg-header"><span class="tg-msg-from">'+esc(m.from||'Unknown')+'</span><span>'+date+'</span></div>';
+    if(m.text) h+='<div class="tg-msg-text">'+esc(m.text)+'</div>';
+    if(m.caption) h+='<div class="tg-msg-text"><em>'+esc(m.caption)+'</em></div>';
+    if(m.has_media){
+      h+='<div class="tg-msg-media">';
+      h+='<span class="tg-media-tag">📎 '+esc(m.media_type||'media')+'</span>';
+      if(m.file_name) h+='<span class="tg-media-tag">📄 '+esc(m.file_name)+'</span>';
+      if(m.file_size) h+='<span class="tg-media-tag">💾 '+formatSize(m.file_size)+'</span>';
+      if(m.media_type==='photo'||m.media_type==='video'){
+        h+='<span class="tg-media-tag"><a href="/api/telegram/file?file_id='+m.file_id+'" target="_blank">⬇️ Download</a></span>';
+      }
+      h+='</div>';
     }
-  } catch (e) { log.error = e.message; }
-  if (env.CACHE) await env.CACHE.put('last_sync', JSON.stringify(log));
-  return log;
-}
+    h+='</div>';
+  });
+  el.innerHTML=h;
+};
+
+N.filterTG = function(type,btn){
+  tgCurrentType=type;
+  document.querySelectorAll('#pg-tg .fbtn').forEach(function(b){b.classList.remove('active')});
+  if(btn)btn.classList.add('active');
+  N.filterTGMessages();
+};
+
+N.filterTGMessages = function(){
+  var q = (document.getElementById('tgSearch').value||'').toLowerCase();
+  var filtered = tgMessages.filter(function(m){
+    var matchType = tgCurrentType==='all'||(tgCurrentType==='text'?!m.has_media:m.media_type===tgCurrentType);
+    var matchQ = !q||(m.text||'').toLowerCase().includes(q)||(m.file_name||'').toLowerCase().includes(q)||(m.caption||'').toLowerCase().includes(q);
+    return matchType&&matchQ;
+  });
+  N.renderTG(filtered);
+};
+
+// --- MOVIES ---
+N.loadMovies = async function(type,btn){
+  if(btn){document.querySelectorAll('#pg-movies .fbtn').forEach(function(b){b.classList.remove('active')});btn.classList.add('active');}
+  document.getElementById('moviesGrid').innerHTML='<div class="loading">🎬 Loading...</div>';
+  try{
+    var r = await fetch(API+'/api/movies?type='+type);
+    var d = await r.json();
+    var h='';
+    (d.results||[]).forEach(function(m){
+      h+='<div class="media-card">';
+      if(m.image) h+='<img src="'+m.image+'" alt="'+esc(m.title)+'">';
+      else h+='<img src="" style="background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center" alt="">';
+      h+='<div class="info"><h4>'+esc(m.title)+'</h4>';
+      h+='<div class="meta"><span>⭐ '+m.rating+'</span><span>'+(m.year||'')+'</span></div></div></div>';
+    });
+    document.getElementById('moviesGrid').innerHTML=h||'<div class="empty"><span>🎬</span>Koi movie nahi mili</div>';
+  }catch(e){
+    document.getElementById('moviesGrid').innerHTML='<div class="empty"><span>🎬</span>Movies load nahi ho payi</div>';
+  }
+};
+
+// --- BOOKS ---
+N.loadBooks = async function(q,btn){
+  if(btn){document.querySelectorAll('#pg-books .fbtn').forEach(function(b){b.classList.remove('active')});btn.classList.add('active');}
+  var query = document.getElementById('bookSearch').value||q||'hindi';
+  document.getElementById('booksGrid').innerHTML='<div class="loading">📚 Loading...</div>';
+  try{
+    var r = await fetch(API+'/api/books?q='+encodeURIComponent(query));
+    var d = await r.json();
+    var h='';
+    (d.results||[]).forEach(function(b){
+      h+='<div class="media-card">';
+      if(b.cover) h+='<img src="'+b.cover+'" alt="'+esc(b.title)+'">';
+      else h+='<img src="" style="background:var(--card2)" alt="">';
+      h+='<div class="info"><h4>'+esc(b.title)+'</h4>';
+      h+='<div class="meta"><span>'+(b.author||'')+'</span><span>'+(b.year||'')+'</span></div>';
+      if(b.read_url) h+='<a class="read-link" href="'+b.read_url+'" target="_blank">📖 Read Free</a>';
+      h+='</div></div>';
+    });
+    document.getElementById('booksGrid').innerHTML=h||'<div class="empty"><span>📚</span>Koi book nahi mili</div>';
+  }catch(e){
+    document.getElementById('booksGrid').innerHTML='<div class="empty"><span>📚</span>Books load nahi ho payi</div>';
+  }
+};
+
+// --- SEARCH ---
+N.doSearch = async function(){
+  var q = document.getElementById('searchInput').value.trim();
+  if(!q)return;
+  var el = document.getElementById('searchResults');
+  el.innerHTML='<div class="loading">🔍 Searching all sources...</div>';
+  try{
+    var r = await fetch(API+'/api/search?q='+encodeURIComponent(q));
+    var d = await r.json();
+    var h='';
+    var total = (d.movies||[]).length+(d.books||[]).length+(d.telegram||[]).length;
+    h+='<div style="margin-bottom:12px;color:var(--text2);font-size:13px">'+total+' results for "'+q+'"</div>';
+
+    (d.telegram||[]).forEach(function(m){
+      h+='<div class="sr-card"><div class="sr-info"><h3>'+esc(m.text||m.file_name||'Media')+'</h3>';
+      h+='<div class="sr-meta"><span class="sr-tag tg">📱 Telegram</span>';
+      if(m.media_type) h+='<span class="sr-tag tg">'+m.media_type+'</span>';
+      h+='</div>';
+      if(m.from) h+='<p style="font-size:12px;color:var(--text2)">'+esc(m.from)+'</p>';
+      h+='</div></div>';
+    });
+    (d.movies||[]).forEach(function(m){
+      h+='<div class="sr-card">';
+      if(m.image) h+='<img class="sr-img" src="'+m.image+'" alt="">';
+      h+='<div class="sr-info"><h3>'+esc(m.title)+'</h3>';
+      h+='<div class="sr-meta"><span class="sr-tag movie">🎬 Movie</span>';
+      if(m.rating) h+='<span>⭐ '+m.rating+'</span>';
+      if(m.year) h+='<span>'+m.year+'</span>';
+      h+='</div>';
+      if(m.overview) h+='<p style="font-size:12px;color:var(--text2)">'+esc(m.overview.substring(0,120))+'...</p>';
+      h+='</div></div>';
+    });
+    (d.books||[]).forEach(function(b){
+      h+='<div class="sr-card">';
+      if(b.cover) h+='<img class="sr-img" src="'+b.cover+'" alt="">';
+      h+='<div class="sr-info"><h3>'+esc(b.title)+'</h3>';
+      h+='<div class="sr-meta"><span class="sr-tag book">📚 Book</span>';
+      if(b.author) h+='<span>'+esc(b.author)+'</span>';
+      h+='</div>';
+      if(b.read_url) h+='<a href="'+b.read_url+'" target="_blank" style="color:var(--accent);font-size:12px">📖 Read Free</a>';
+      h+='</div></div>';
+    });
+    if(!total) h='<div class="empty"><span>🔍</span>Kuchh nahi mila</div>';
+    el.innerHTML=h;
+  }catch(e){
+    el.innerHTML='<div class="empty"><span>⚠️</span>Search fail hua. Try again.</div>';
+  }
+};
+
+// --- AI CHAT ---
+N.chat = async function(msg){
+  if(!msg||!msg.trim())return;
+  msg=msg.trim();
+  var msgs = document.getElementById('chatMsgs');
+  msgs.innerHTML+='<div class="msg user"><div class="msg-label">👤 You</div><p>'+esc(msg)+'</p></div>';
+  msgs.innerHTML+='<div class="msg ai"><div class="msg-label">🤖 Thinking...</div><p>⏳</p></div>';
+  msgs.scrollTop=msgs.scrollHeight;
+  try{
+    var r = await fetch(API+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+    var d = await r.json();
+    var last = msgs.lastElementChild;
+    last.innerHTML='<div class="msg-label">'+(d.icon||'⚡')+' '+(d.worker||'MAIN')+'</div><p>'+esc(d.response||'No response').replace(/\\n/g,'<br>')+'</p>';
+  }catch(e){
+    var last = msgs.lastElementChild;
+    last.innerHTML='<div class="msg-label">⚠️ Error</div><p>Connect nahi ho paya. Try again.</p>';
+  }
+  msgs.scrollTop=msgs.scrollHeight;
+};
+
+// --- CATALOG ---
+N.loadCatalog = async function(){
+  try{
+    var r = await fetch(API+'/api/catalog');
+    var d = await r.json();
+    var el = document.getElementById('catalogList');
+    if((d.results||[]).length){
+      var h='';
+      d.results.forEach(function(item){
+        h+='<div class="media-card">';
+        if(item.image) h+='<img src="'+item.image+'" alt="">';
+        else h+='<img src="" style="background:var(--card2)" alt="">';
+        h+='<div class="info"><h4>'+esc(item.title)+'</h4>';
+        h+='<div class="meta"><span>'+item.type+'</span><span>'+(item.year||'')+'</span></div>';
+        if(item.description) h+='<p style="font-size:11px;color:var(--text2);margin-top:4px">'+esc(item.description.substring(0,80))+'</p>';
+        h+='</div></div>';
+      });
+      el.innerHTML=h;
+    }else{
+      el.innerHTML='<div class="empty"><span>📁</span>Catalog khali hai. Add karo!</div>';
+    }
+  }catch(e){
+    document.getElementById('catalogList').innerHTML='<div class="empty"><span>📁</span>Load nahi ho paya</div>';
+  }
+};
+
+N.addToCatalog = async function(){
+  var title = document.getElementById('catTitle').value.trim();
+  if(!title){alert('Title zaroori hai!');return;}
+  try{
+    await fetch(API+'/api/catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title,type:document.getElementById('catType').value,description:document.getElementById('catDesc').value.trim()})});
+    document.getElementById('catTitle').value='';
+    document.getElementById('catDesc').value='';
+    N.loadCatalog();
+  }catch(e){alert('Add failed: '+e.message);}
+};
+
+// --- UTILS ---
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function formatSize(b){if(b>1073741824)return(b/1073741824).toFixed(1)+' GB';if(b>1048576)return(b/1048576).toFixed(1)+' MB';if(b>1024)return(b/1024).toFixed(1)+' KB';return b+' B';}
+
+})();
+`;
