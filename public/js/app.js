@@ -309,3 +309,119 @@ window.go = (function(orig){
     if (p === 'books') window.loadBooks('famous');
   };
 })(window.go);
+
+// ============================================================
+// LIVE TV — IPTV channels with player
+// ============================================================
+let tvData = { channels: [], hindi: [], other: [] };
+let tvCurrentGroup = 'all';
+
+window.loadLiveTV = async function() {
+  var container = document.getElementById('tvChannels');
+  if (!container) return;
+  container.innerHTML = '<div class="loading">📺 Loading channels...</div>';
+
+  try {
+    var resp = await fetch(API + '/api/live-tv');
+    var data = await resp.json();
+    
+    tvData = data;
+    document.getElementById('tvCount').textContent = data.total || 0;
+    
+    // Build group filters
+    var groupsHtml = '<button class="tv-gf on" onclick="filterTVGroup(\'all\',this)">All (' + data.total + ')</button>';
+    groupsHtml += '<button class="tv-gf" onclick="filterTVGroup(\'hindi\',this)">🇮🇳 Hindi (' + data.hindi + ')</button>';
+    if (data.groups) {
+      var sorted = Object.entries(data.groups).sort((a,b) => b[1]-a[1]).slice(0, 15);
+      sorted.forEach(function(g) {
+        groupsHtml += '<button class="tv-gf" onclick="filterTVGroup(\'' + g[0].replace(/'/g,"\\'") + '\',this)">' + g[0] + ' (' + g[1] + ')</button>';
+      });
+    }
+    document.getElementById('tvGroups').innerHTML = groupsHtml;
+
+    renderTVChannels(data.channels || []);
+  } catch(e) {
+    container.innerHTML = '<div class="sr-error">⚠️ Channels load nahi ho paye. Try again.</div>';
+  }
+};
+
+function renderTVChannels(channels) {
+  var container = document.getElementById('tvChannels');
+  if (!channels.length) {
+    container.innerHTML = '<div class="sr-empty">Koi channel nahi mila.</div>';
+    return;
+  }
+  var html = '<div class="tv-grid">';
+  channels.forEach(function(ch, i) {
+    html += '<div class="tv-card" onclick="playTVChannel(' + i + ')" title="' + escHtml(ch.name) + '">';
+    if (ch.logo) html += '<img src="' + ch.logo + '" class="tv-logo" onerror="this.style.display=\'none\'">';
+    else html += '<div class="tv-logo-placeholder">📺</div>';
+    html += '<div class="tv-card-info">';
+    html += '<div class="tv-card-name">' + escHtml(ch.name) + '</div>';
+    html += '<div class="tv-card-group">' + escHtml(ch.group) + '</div>';
+    if (ch.hindi) html += '<span class="tv-hindi-badge">🇮🇳</span>';
+    html += '</div></div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+window.playTVChannel = function(index) {
+  var ch = tvData.channels[index];
+  if (!ch || !ch.url) return;
+
+  var video = document.getElementById('tvVideo');
+  var placeholder = document.getElementById('tvPlaceholder');
+  var nowPlaying = document.getElementById('tvNowPlaying');
+  var channelName = document.getElementById('tvChannelName');
+
+  // Try playing through proxy for CORS
+  var playUrl = API ? API + '/api/live-tv/stream?url=' + encodeURIComponent(ch.url) : ch.url;
+
+  video.src = playUrl;
+  video.style.display = 'block';
+  placeholder.style.display = 'none';
+  nowPlaying.style.display = 'flex';
+  channelName.textContent = ch.name;
+
+  video.play().catch(function(e) {
+    // If proxy fails, try direct
+    console.log('Proxy failed, trying direct:', e);
+    video.src = ch.url;
+    video.play().catch(function(e2) {
+      placeholder.innerHTML = '<span style="font-size:48px">❌</span><p>Channel play nahi ho raha</p><p style="font-size:12px;color:var(--text2)">' + e2.message + '</p>';
+      placeholder.style.display = 'flex';
+      video.style.display = 'none';
+      nowPlaying.style.display = 'none';
+    });
+  });
+};
+
+window.filterTVGroup = function(group, btn) {
+  tvCurrentGroup = group;
+  document.querySelectorAll('.tv-gf').forEach(function(b){ b.classList.remove('on') });
+  if (btn) btn.classList.add('on');
+  filterTVChannels();
+};
+
+window.filterTVChannels = function() {
+  var search = (document.getElementById('tvSearch')?.value || '').toLowerCase();
+  var filtered = (tvData.channels || []).filter(function(ch) {
+    var matchGroup = tvCurrentGroup === 'all' || 
+      (tvCurrentGroup === 'hindi' && ch.hindi) ||
+      ch.group.toLowerCase() === tvCurrentGroup.toLowerCase();
+    var matchSearch = !search || ch.name.toLowerCase().includes(search) || ch.group.toLowerCase().includes(search);
+    return matchGroup && matchSearch;
+  });
+  renderTVChannels(filtered);
+};
+
+// Auto-load TV when page shown
+window.go = (function(orig){
+  return function(p) {
+    orig(p);
+    if (p === 'tv') window.loadLiveTV();
+    if (p === 'movies') window.loadMovies('popular');
+    if (p === 'books') window.loadBooks('famous');
+  };
+})(window.go);

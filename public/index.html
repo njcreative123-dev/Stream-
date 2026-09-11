@@ -128,18 +128,41 @@
       </div>
     </div>
 
+    </div>
+
     <!-- PAGE: LIVE TV -->
     <div class="pg" id="p-tv">
-      <div class="ph"><h1>📺 Live TV</h1><p class="ps">Cloudflare powered</p></div>
-      <div class="cg">
-        <div class="ch3"><div class="ci2">🎬</div><div class="cn">Hindi Movies</div><div class="cs">● LIVE</div></div>
-        <div class="ch3"><div class="ci2">🎥</div><div class="cn">Hindi Dubbed</div><div class="cs">● LIVE</div></div>
-        <div class="ch3"><div class="ci2">📺</div><div class="cn">Web Series</div><div class="cs">● LIVE</div></div>
-        <div class="ch3"><div class="ci2">🎵</div><div class="cn">Music TV</div><div class="cs">● LIVE</div></div>
-        <div class="ch3"><div class="ci2">📰</div><div class="cn">News</div><div class="cs">● LIVE</div></div>
-        <div class="ch3"><div class="ci2">⚽</div><div class="cn">Sports</div><div class="cs">● LIVE</div></div>
+      <div class="ph"><h1>📺 Live TV</h1><p class="ps">Free IPTV — Hindi priority | <span id="tvCount">0</span> channels</p></div>
+      
+      <!-- Player -->
+      <div class="tv-player" id="tvPlayer">
+        <div class="tv-player-inner" id="tvPlayerInner">
+          <div class="tv-placeholder" id="tvPlaceholder">
+            <span style="font-size:64px">📺</span>
+            <p>Channel select karo</p>
+          </div>
+          <video id="tvVideo" controls autoplay style="width:100%;height:100%;display:none;border-radius:12px"></video>
+        </div>
+        <div class="tv-now-playing" id="tvNowPlaying" style="display:none">
+          <span class="tv-live-badge">● LIVE</span>
+          <span id="tvChannelName">—</span>
+        </div>
+      </div>
+
+      <!-- Group filter -->
+      <div class="tv-groups" id="tvGroups"></div>
+
+      <!-- Search -->
+      <div class="search-wrap small">
+        <input type="text" id="tvSearch" class="search-input" placeholder="Channel search karo..." oninput="filterTVChannels()">
+      </div>
+
+      <!-- Channel list -->
+      <div class="tv-channels" id="tvChannels">
+        <div class="loading">📺 Loading channels...</div>
       </div>
     </div>
+
 
     <!-- PAGE: WORKERS STATUS -->
     <div class="pg" id="p-wk">
