@@ -7,6 +7,7 @@ ENVIRONMENT = "production"
 WELCOME_MESSAGE = "NJStream v5.0 — Live TV, Movies, Books, Telegram, AI"
 TG_CHAT_ID = "-1002514429549"
 
+WORKER_URL = "https://njsoft-stream.njcreative123.workers.dev"
 [[d1_databases]]
 binding = "CATALOG_DB"
 database_name = "njsoft-catalog"

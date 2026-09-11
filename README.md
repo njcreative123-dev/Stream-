@@ -1,138 +1,96 @@
-# ⚡ JDUB Hub
+# NJStream — All-in-One Streaming Platform
 
-**Movies · Books · AI · Live TV — 10+ Free Services**
+🎬 **Live TV** • **Movies** • **Books** • **Telegram Data** • **AI Chat** — Sab Free!
 
-![JDUB Hub](https://img.shields.io/badge/Status-Online-brightgreen?style=flat-square)
-![Workers](https://img.shields.io/badge/Workers-6-blue?style=flat-square)
-![Hosting](https://img.shields.io/badge/Hosting-Free%20Tier-purple?style=flat-square)
+**Live Site:** https://njsoft-stream.njcreative123.workers.dev
 
-## 🌐 Live Endpoints
+---
 
-| Service | URL | Free Tier |
-|---------|-----|-----------|
-| HelioHost | https://njcreative123.helioho.st/ | ✅ Unlimited |
-| Cloudflare Worker | https://jdub-deploy.njcreative123.workers.dev/ | ✅ 10M req/day |
-| Cloudflare Pages | https://jdub-hub.pages.dev/ | ✅ Unlimited |
-| GitHub Pages | https://njcreative123-dev.github.io/Stream-/ | ✅ Unlimited |
+## Features
 
-## 🤖 API Endpoints
+| Feature | Status | Details |
+|---------|--------|---------|
+| 📺 Live TV | ✅ 910 channels | Hindi priority (188), HLS.js player |
+| 📱 Telegram Data | ✅ Readable + Downloadable | Photos, videos, documents — inline playback |
+| 🎬 Movies | ✅ TMDB Hindi + English | Popular, Top Rated, Now Playing, Upcoming |
+| 📚 Books | ✅ Open Library | 20+ Hindi books, read links |
+| 🤖 AI Chat | ✅ Smart routing | Cloudflare AI LLM powered |
+| 🔍 Search | ✅ Multi-source | Movies + Books + Telegram |
+| 📁 Catalog | ✅ D1 SQLite | Add/edit content |
+| 🔄 Sync | ✅ Cron + Manual | 6-hour auto-sync + UI button |
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/health` | GET | Health check |
-| `/api/status` | GET | All services status |
-| `/api/search?q=` | GET | Search movies + books |
-| `/api/movies?type=popular` | GET | Movies (TMDB) |
-| `/api/books?q=famous` | GET | Books (Open Library) |
-| `/api/trending` | GET | Trending movies + books |
-| `/api/catalog` | GET/POST | D1 database CRUD |
-| `/api/telegram/webhook` | POST | Telegram bot commands |
-| `/api/analytics` | GET | Pageview stats |
-| `/api/cache` | GET | KV cache demo |
-| `/api/chat` | POST | AI worker chat |
+## Architecture
 
-## ☁️ Free Cloudflare Services
+```
+Cloudflare Worker (edge)
+├── /css/style.css — Dark glassmorphism theme
+├── /js/app.js — Single-page app (HLS.js TV player)
+├── /api/live-tv — IPTV parser (iptv-org sources)
+├── /api/telegram/* — Webhook + KV storage + ingest
+├── /api/movies — TMDB fallback → D1 cache
+├── /api/books — Open Library
+├── /api/chat — Cloudflare AI / smart fallback
+├── /api/search — Multi-source
+└── /api/catalog — D1 SQLite CRUD
+```
 
-| Service | Free Tier | Usage |
-|---------|-----------|-------|
-| **Workers** | 10M req/day | API routing, AI |
-| **KV** | 100K reads/day | Caching |
-| **D1** | 5GB, 5M reads/day | Movie/book catalog |
-| **R2** | 10GB storage | Thumbnails, media |
-| **Cron** | 1 trigger/day | Daily data sync |
-| **Pages** | Unlimited deploys | Static site |
-| **Analytics** | Unlimited | Pageview tracking |
-| **Turnstile** | Unlimited | CAPTCHA |
-| **CDN** | 300+ cities | Global edge |
+## Services
 
-## 🐙 GitHub Features
+- **Cloudflare Worker** — v5.0.0 (200+ edge locations)
+- **KV Storage** — Telegram data cache (30-day TTL)
+- **D1 Database** — `njsoft-catalog` (SQLite at edge)
+- **Cron Trigger** — `0 */6 * * *` (every 6 hours)
 
-| Feature | Status |
-|---------|--------|
-| **Actions** | ✅ Auto-deploy on push |
-| **Pages** | ✅ Static site hosting |
-| **CodeQL** | ✅ Weekly security scan |
-| **Dependabot** | ✅ Auto dependency updates |
-| **Funding** | ✅ Sponsor button |
-| **Bot** | ✅ `/status`, `/deploy`, `/help` |
+## Telegram Setup
 
-## 📱 Free External Services
+### Automatic (webhook)
+Bot `@no1currentbot` webhook is active — all new messages in group `-1002514429549` are stored automatically.
 
-| Service | Usage |
-|---------|-------|
-| **TMDB API** | Movie metadata (free key) |
-| **Open Library** | Books (completely free) |
-| **Telegram Bot API** | Webhook commands |
-| **HelioHost** | PHP hosting |
-| **Vercel** | Backup deploy (config ready) |
-| **Netlify** | Backup deploy (config ready) |
-| **Render** | Backup deploy (config ready) |
-| **Koyeb** | Backup deploy (config ready) |
+### Full History Backfill (Telethon)
+To import old group history:
 
-## 🚀 Deploy
-
-### Cloudflare Worker
+1. Get `API_ID`/`API_HASH` from https://my.telegram.org
+2. Install: `pip install telethon`
+3. Run:
 ```bash
+API_ID=xxxxx API_HASH=xxxxx PHONE=+91xxxx GROUP=hindidubbedfilmmovie \
+  INGEST_KEY=$(cat .env | grep INGEST_KEY | cut -d= -f2) \
+  python scripts/telegram_backfill.py
+```
+
+### Webhook Status
+Check: https://njsoft-stream.njcreative123.workers.dev/api/status
+
+## Deploy
+
+```bash
+export CLOUDFLARE_API_TOKEN=...
+export CLOUDFLARE_ACCOUNT_ID=18998bfa1e33fe431b59dd938db7907c
 npx wrangler deploy
 ```
 
-### Cloudflare Pages
-```bash
-npx wrangler pages deploy public --project-name=jdub-hub
-```
+## API Endpoints
 
-### HelioHost
-Push to `main` branch → GitHub Actions auto-deploys via FTP
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/status` | GET | Service health |
+| `/api/live-tv` | GET | All channels (filterable) |
+| `/api/live-tv/stream` | GET | Proxy (302 redirect) |
+| `/api/telegram/messages` | GET | Messages (paginated) |
+| `/api/telegram/sync` | POST | Sync from webhook |
+| `/api/telegram/ingest` | POST | Bulk import (x-ingest-key) |
+| `/api/movies` | GET | TMDB movies by category |
+| `/api/books` | GET | Open Library search |
+| `/api/search` | GET | Multi-source search |
+| `/api/chat` | POST | AI chat |
+| `/api/catalog` | GET/POST/DELETE | D1 catalog CRUD |
 
-### GitHub Pages
-```bash
-# Enable in repo Settings → Pages → GitHub Actions
-# Workflow already configured
-```
+## Credentials (Cloudflare)
 
-### Backups
-```bash
-# Vercel: import repo → auto-detect vercel.json
-# Netlify: import repo → auto-detect netlify.toml
-# Render: import repo → auto-detect render.yaml
-# Koyeb: import repo → auto-detect koyeb.yaml
-```
+- Account: `18998bfa1e33fe431b59dd938db7907c`
+- Worker: `njsoft-stream`
+- KV: `e1889fcdeca94f2abe934162ade34db8`
+- D1: `njsoft-catalog` / `a8cf8fd3-fa70-42ed-b83c-83dc326909a9`
 
-## 🔐 Required Secrets (GitHub)
-
-```
-CLOUDFLARE_API_TOKEN=cfut_xxx
-CLOUDFLARE_ACCOUNT_ID=xxx
-TELEGRAM_BOT_TOKEN=xxx
-TELEGRAM_CHAT_ID=xxx
-HELIOHOST_FTP_USER=xxx
-HELIOHOST_FTP_PASS=xxx
-TMDB_KEY=xxx  # optional — get free key at themoviedb.org
-```
-
-## 📁 Project Structure
-
-```
-├── src/workers/index.js    # Main Cloudflare Worker
-├── public/                 # Static site
-│   ├── index.html
-│   ├── css/style.css
-│   ├── js/app.js
-│   ├── index.php           # HelioHost PHP fallback
-│   └── telegram-bot/       # Telegram webhook
-├── scripts/                # Data sync scripts
-├── .github/workflows/      # CI/CD (6 workflows)
-│   ├── deploy.yml
-│   ├── bot.yml
-│   ├── codeql.yml
-│   └── scheduled-sync.yml
-├── wrangler.toml           # Cloudflare config
-├── vercel.json             # Vercel config
-├── netlify.toml            # Netlify config
-├── render.yaml             # Render config
-└── koyeb.yaml              # Koyeb config
-```
-
-## 📜 License
-
-MIT
+---
+Built with ❤️ by NJCreative

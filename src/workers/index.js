@@ -96,6 +96,8 @@ export default {
       if (path === '/api/telegram/file') return handleTelegramFile(url, env);
       if (path === '/api/telegram/sync' && method === 'POST')
         return handleTelegramSync(env);
+      if (path === '/api/telegram/ingest' && method === 'POST')
+        return handleTelegramIngest(request, env);
       if (path === '/api/telegram/stats')
         return handleTelegramStats(env);
 
@@ -159,25 +161,35 @@ export default {
 async function handleTelegramWebhook(request, env) {
   try {
     const update = await request.json();
-    if (!update.message) return json({ ok: true });
+    const msg = update.message || update.channel_post || update.edited_message;
+    if (!msg) return json({ ok: true });
 
-    const msg = update.message;
     const chatId = msg.chat?.id?.toString();
     const allowedChat = env.TG_CHAT_ID;
 
     if (allowedChat && chatId !== allowedChat) return json({ ok: true });
 
+    const fileId = (msg.photo ? msg.photo[msg.photo.length - 1]?.file_id : null) || msg.document?.file_id || msg.video?.file_id || msg.audio?.file_id || msg.voice?.file_id || '';
+    let fileUrl = '';
+    if (fileId && env.TG_BOT_TOKEN) {
+      try {
+        const f = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/getFile?file_id=${fileId}`);
+        const fd = await f.json();
+        if (fd.ok && fd.result?.file_path) fileUrl = `https://api.telegram.org/file/bot${env.TG_BOT_TOKEN}/${fd.result.file_path}`;
+      } catch (e) {}
+    }
     const entry = {
       id: msg.message_id,
       chat_id: chatId,
       date: msg.date,
-      from: msg.from?.first_name || 'Unknown',
+      from: msg.from?.first_name || (msg.sender_chat ? (msg.sender_chat.title || msg.sender_chat.username || 'Channel') : 'Unknown'),
       text: msg.text || '',
       has_media: !!(msg.photo || msg.document || msg.video || msg.audio || msg.voice || msg.animation),
       media_type: msg.photo ? 'photo' : msg.document ? 'document' : msg.video ? 'video' : msg.audio ? 'audio' : msg.voice ? 'voice' : msg.animation ? 'animation' : null,
       file_name: msg.document?.file_name || msg.video?.file_name || '',
       file_size: msg.document?.file_size || msg.video?.file_size || msg.audio?.file_size || 0,
-      file_id: (msg.photo ? msg.photo[msg.photo.length - 1]?.file_id : null) || msg.document?.file_id || msg.video?.file_id || msg.audio?.file_id || msg.voice?.file_id || '',
+      file_id: fileId,
+      file_url: fileUrl,
       caption: msg.caption || '',
       views: msg.views || 0,
       forwards: msg.forwards || 0,
@@ -253,6 +265,59 @@ async function handleTelegramMessages(url, env) {
   return json({ messages, total: index.total, offset, limit, has_more: endIdx < index.ids.length });
 }
 
+async function handleTelegramIngest(request, env) {
+  const key = request.headers.get('x-ingest-key');
+  const secret = env.INGEST_KEY;
+  if (secret && key !== secret) return json({ error: 'Unauthorized' }, 401);
+  if (!env.KV_STORE) return json({ error: 'KV not configured' }, 500);
+
+  try {
+    const data = await request.json();
+    const messages = Array.isArray(data.messages) ? data.messages : [data.messages || data];
+    let processed = 0;
+
+    for (const raw of messages) {
+      const msg = raw.message || raw.channel_post || raw;
+      const chatId = (msg.chat?.id || raw.chat_id || '-1002514429549').toString();
+      const entry = {
+        id: msg.message_id || processed,
+        chat_id: chatId,
+        date: msg.date || Math.floor(Date.now() / 1000),
+        from: msg.from?.first_name || msg.sender_chat?.title || 'User',
+        text: msg.text || '',
+        has_media: !!(msg.photo || msg.document || msg.video || msg.audio || msg.voice || msg.animation),
+        media_type: msg.photo ? 'photo' : msg.document ? 'document' : msg.video ? 'video' : msg.audio ? 'audio' : msg.voice ? 'voice' : msg.animation ? 'animation' : null,
+        file_name: msg.document?.file_name || msg.video?.file_name || '',
+        file_size: msg.document?.file_size || msg.video?.file_size || msg.audio?.file_size || 0,
+        file_id: (msg.photo ? msg.photo[msg.photo.length - 1]?.file_id : null) || msg.document?.file_id || msg.video?.file_id || msg.audio?.file_id || '',
+        file_url: '',
+        caption: msg.caption || '',
+        views: msg.views || 0,
+        forwards: msg.forwards || 0,
+      };
+      await env.KV_STORE.put(`msg:${chatId}:${entry.id}`, JSON.stringify(entry), { expirationTtl: 2592000 });
+      processed++;
+    }
+
+    // Update index
+    const chatId = (messages[0]?.chat?.id || '-1002514429549').toString();
+    const indexKey = `index:${chatId}`;
+    const index = await env.KV_STORE.get(indexKey, { type: 'json' }) || { ids: [], total: 0, last_sync: 0 };
+    for (const raw of messages) {
+      const msg = raw.message || raw.channel_post || raw;
+      const mid = msg.message_id || processed;
+      if (!index.ids.includes(mid)) index.ids = [mid, ...index.ids].slice(0, 5000);
+    }
+    index.total = Math.max(index.total, index.ids.length);
+    index.last_sync = Date.now();
+    await env.KV_STORE.put(indexKey, JSON.stringify(index), { expirationTtl: 2592000 });
+
+    return json({ ok: true, processed });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
 async function handleTelegramSync(env) {
   if (!env.TG_BOT_TOKEN) return json({ error: 'TG_BOT_TOKEN not set' });
 
@@ -293,6 +358,15 @@ async function handleTelegramSync(env) {
         const chatId = msg.chat?.id?.toString();
         if (!chatId) continue;
 
+        const fileId = (msg.photo ? msg.photo[msg.photo.length - 1]?.file_id : null) || msg.document?.file_id || msg.video?.file_id || msg.audio?.file_id || msg.voice?.file_id || '';
+        let fileUrl = '';
+        if (fileId && env.TG_BOT_TOKEN) {
+          try {
+            const f = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/getFile?file_id=${fileId}`);
+            const fd = await f.json();
+            if (fd.ok && fd.result?.file_path) fileUrl = `https://api.telegram.org/file/bot${env.TG_BOT_TOKEN}/${fd.result.file_path}`;
+          } catch (e) {}
+        }
         const entry = {
           id: msg.message_id,
           chat_id: chatId,
@@ -303,7 +377,8 @@ async function handleTelegramSync(env) {
           media_type: msg.photo ? 'photo' : msg.document ? 'document' : msg.video ? 'video' : msg.audio ? 'audio' : msg.voice ? 'voice' : msg.animation ? 'animation' : null,
           file_name: msg.document?.file_name || msg.video?.file_name || '',
           file_size: msg.document?.file_size || msg.video?.file_size || msg.audio?.file_size || 0,
-          file_id: (msg.photo ? msg.photo[msg.photo.length - 1]?.file_id : null) || msg.document?.file_id || msg.video?.file_id || msg.audio?.file_id || msg.voice?.file_id || '',
+          file_id: fileId,
+          file_url: fileUrl,
           caption: msg.caption || '',
           views: msg.views || 0,
           forwards: msg.forwards || 0,
@@ -1325,12 +1400,19 @@ N.renderTG = function(msgs){
     if(m.text) h+='<div class="tg-msg-text">'+esc(m.text)+'</div>';
     if(m.caption) h+='<div class="tg-msg-text"><em>'+esc(m.caption)+'</em></div>';
     if(m.has_media){
+      var dl = m.file_url ? m.file_url : (m.file_id ? '/api/telegram/file?file_id='+m.file_id : '');
       h+='<div class="tg-msg-media">';
       h+='<span class="tg-media-tag">📎 '+esc(m.media_type||'media')+'</span>';
       if(m.file_name) h+='<span class="tg-media-tag">📄 '+esc(m.file_name)+'</span>';
       if(m.file_size) h+='<span class="tg-media-tag">💾 '+formatSize(m.file_size)+'</span>';
-      if(m.media_type==='photo'||m.media_type==='video'){
-        h+='<span class="tg-media-tag"><a href="/api/telegram/file?file_id='+m.file_id+'" target="_blank">⬇️ Download</a></span>';
+      if(m.media_type==='video'&&dl){
+        h+='<video controls preload="none" style="width:100%;max-height:320px;border-radius:10px;margin-top:6px;background:#000"><source src="'+dl+'"></video>';
+      }else if(m.media_type==='photo'&&dl){
+        h+='<a href="'+dl+'" target="_blank"><img src="'+dl+'" style="max-width:100%;max-height:280px;border-radius:10px;margin-top:6px;cursor:pointer" alt="photo"></a>';
+      }else if(dl){
+        h+='<div style="margin-top:6px"><a class="book-link" href="'+dl+'" target="_blank">⬇️ Download '+(m.media_type||'file')+'</a></div>';
+      }else if(m.file_id){
+        h+='<div style="margin-top:6px"><a class="book-link" href="/api/telegram/file?file_id='+m.file_id+'" target="_blank">⬇️ Download</a></div>';
       }
       h+='</div>';
     }
