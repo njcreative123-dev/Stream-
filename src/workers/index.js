@@ -1389,9 +1389,9 @@ const INDEX_HTML = `<!DOCTYPE html>
 `;
 
 const STYLE_CSS = `:root{
-  --bg:#05060a;--bg2:#0b0e18;
-  --card:rgba(255,255,255,.10);--card-solid:#141828;--card2:rgba(255,255,255,.15);
-  --border:rgba(255,255,255,.14);--border2:rgba(255,255,255,.25);
+  --bg:#0a0c14;--bg2:#111520;
+  --card:rgba(255,255,255,.14);--card-solid:#161b2e;--card2:rgba(255,255,255,.18);
+  --border:rgba(255,255,255,.20);--border2:rgba(255,255,255,.32);
   --text:#f4f6ff;--text2:#96a0bb;
   --accent:#22d3ee;--accent2:#a78bfa;--green:#34d399;--amber:#fbbf24;--red:#f87171;
   --grad:linear-gradient(135deg,#22d3ee,#a78bfa);
@@ -1718,8 +1718,9 @@ function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':
 function loadAuth(){
   try {
     state.token = localStorage.getItem('nj_token');
-    state.user = JSON.parse(localStorage.getItem('nj_user') || 'null');
-  } catch(e){}
+    var raw = localStorage.getItem('nj_user');
+    state.user = raw ? JSON.parse(raw) : null;
+  } catch(e){ state.user = null; }
   updateUserUI();
 }
 function saveAuth(token, user){
@@ -1741,26 +1742,68 @@ function updateUserUI(){
   if (state.user){
     var r = state.user.role;
     var rc = r==='admin'?'color:var(--red)':r==='prime'?'color:var(--amber)':'color:var(--accent)';
-    pill.innerHTML = '<div class="user-avatar">'+esc(state.user.avatar||'👤')+'</div><div><div class="user-name">'+esc(state.user.username)+'</div><div class="user-role" style="'+rc+'">'+r.toUpperCase()+'</div></div><button class="logout-btn" onclick="document.dispatchEvent(new Event(\'logout\'))">Logout</button>';
+    var avatar = esc(state.user.avatar||String.fromCodePoint(0x1F464));
+    var uname = esc(state.user.username);
+    pill.innerHTML = '<div class="user-avatar">'+avatar+'</div><div><div class="user-name">'+uname+'</div><div class="user-role" style="'+rc+'">'+r.toUpperCase()+'</div></div><button class="logout-btn" data-logout="1">Logout</button>';
   } else {
     pill.innerHTML = '<button class="login-btn" data-nav="login">🔑 Login</button>';
   }
 }
 
 /* ---------- Init ---------- */
-window.addEventListener('load', function(){
+function initApp(){
   loadAuth();
   var th = 'dark';
   try { th = localStorage.getItem('njtheme') || 'dark'; } catch(e){}
   document.documentElement.setAttribute('data-theme', th);
   syncThemeIcon();
-  setTimeout(function(){
-    $('loader').classList.add('hide');
-    $('app').classList.add('vis');
-    go('home');
-    loadAgentStrip();
-  }, 900);
-});
+  $('loader').classList.add('hide');
+  $('app').classList.add('vis');
+  go('home');
+  loadAgentStrip();
+  attachFormHandlers();
+}
+
+// Use multiple methods to ensure init runs
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function(){ setTimeout(initApp, 100); });
+} else {
+  setTimeout(initApp, 100);
+}
+
+/* ---------- Form Handlers ---------- */
+function attachFormHandlers(){
+  var lf = $('loginForm');
+  var rf = $('registerForm');
+  if (lf) lf.addEventListener('submit', function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    var u = $('loginUser').value.trim();
+    var p = $('loginPass').value;
+    if (!u || !p) { $('authError').textContent='Username aur password zaroori hai'; return; }
+    $('authError').textContent = 'Logging in...';
+    fetch(API+'/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,password:p})})
+    .then(function(r){return r.json()}).then(function(d){
+      if (d.ok && d.token){ saveAuth(d.token, d.user); go('home'); }
+      else { $('authError').textContent = d.error || 'Login failed'; }
+    }).catch(function(er){ $('authError').textContent = 'Connection error'; });
+  }, true);
+  if (rf) rf.addEventListener('submit', function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    var u = $('regUser').value.trim();
+    var em = $('regEmail').value.trim();
+    var p = $('regPass').value;
+    if (!u || !em || !p) { $('authError').textContent='Sab fields zaroori hain'; return; }
+    if (p.length < 6) { $('authError').textContent='Password 6+ chars hona chahiye'; return; }
+    $('authError').textContent = 'Creating account...';
+    fetch(API+'/api/auth/register', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,email:em,password:p})})
+    .then(function(r){return r.json()}).then(function(d){
+      if (d.ok && d.token){ saveAuth(d.token, d.user); go('home'); }
+      else { $('authError').textContent = d.error || 'Register failed'; }
+    }).catch(function(er){ $('authError').textContent = 'Connection error'; });
+  }, true);
+}
 
 /* ---------- Theme ---------- */
 function toggleTheme(){
@@ -1772,7 +1815,7 @@ function toggleTheme(){
 }
 function syncThemeIcon(){
   var b = $('themeBtn');
-  if (b) b.textContent = document.documentElement.getAttribute('data-theme') === 'light' ? '🌙' : '☀️';
+  if (b) b.textContent = document.documentElement.getAttribute('data-theme') === 'light' ? String.fromCodePoint(0x1F319) : String.fromCodePoint(0x2600,0xFE0F);
 }
 
 /* ---------- Navigation ---------- */
@@ -1816,6 +1859,7 @@ document.addEventListener('click', function(e){
   n = t.closest('#familyStart'); if (n) { startFamilyDiscussion(); return; }
   n = t.closest('#familyRefresh'); if (n) { loadFamilyRoom(); return; }
   n = t.closest('.auth-tab'); if (n) { switchAuthTab(n.getAttribute('data-auth-tab')); return; }
+  n = t.closest('[data-logout]'); if (n) { logoutAuth(); return; }
   n = t.closest('.logout-btn'); if (n) { logoutAuth(); return; }
 });
 document.addEventListener('logout', function(){ logoutAuth(); });
@@ -1840,59 +1884,34 @@ function switchAuthTab(tab){
   $('authError').textContent = '';
 }
 
-document.addEventListener('DOMContentLoaded', function(){
-  if ($('loginForm')) $('loginForm').addEventListener('submit', function(e){
-    e.preventDefault();
-    var u = $('loginUser').value.trim(), p = $('loginPass').value;
-    if (!u || !p) return;
-    $('authError').textContent = '';
-    fetch(API+'/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,password:p})})
-    .then(function(r){return r.json()}).then(function(d){
-      if (d.ok && d.token){ saveAuth(d.token, d.user); go('home'); }
-      else { $('authError').textContent = d.error || 'Login failed'; }
-    }).catch(function(er){ $('authError').textContent = 'Connection error'; });
-  });
-  if ($('registerForm')) $('registerForm').addEventListener('submit', function(e){
-    e.preventDefault();
-    var u = $('regUser').value.trim(), em = $('regEmail').value.trim(), p = $('regPass').value;
-    if (!u || !em || !p) return;
-    $('authError').textContent = '';
-    fetch(API+'/api/auth/register', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,email:em,password:p})})
-    .then(function(r){return r.json()}).then(function(d){
-      if (d.ok && d.token){ saveAuth(d.token, d.user); go('home'); }
-      else { $('authError').textContent = d.error || 'Register failed'; }
-    }).catch(function(er){ $('authError').textContent = 'Connection error'; });
-  });
-});
-
 /* ---------- HOME ---------- */
 async function loadHome(){
   try{
     var r = await fetch(API+'/api/status');
     var d = await r.json();
     if (d.services){
-      $('svcKV').textContent = d.services.kv === 'live' ? '● Live' : '● '+d.services.kv;
-      $('svcD1').textContent = '● '+d.services.d1;
-      $('svcTG').textContent = '● '+d.services.tg_messages;
-      $('svcAI').textContent = '● '+d.services.ai;
+      if($('svcKV')) $('svcKV').textContent = d.services.kv === 'live' ? '● Live' : '● '+d.services.kv;
+      if($('svcD1')) $('svcD1').textContent = '● '+d.services.d1;
+      if($('svcTG')) $('svcTG').textContent = '● '+d.services.tg_messages;
+      if($('svcAI')) $('svcAI').textContent = '● '+d.services.ai;
     }
   }catch(e){}
   try{
     var r2 = await fetch(API+'/api/live-tv');
     var d2 = await r2.json();
-    $('stTV').textContent = (d2.working||0)+' / '+(d2.total||0);
-  }catch(e){ $('stTV').textContent='0'; }
+    if($('stTV')) $('stTV').textContent = (d2.working||0)+' / '+(d2.total||0);
+  }catch(e){ if($('stTV')) $('stTV').textContent='0'; }
   try{
     var r3 = await fetch(API+'/api/telegram/stats');
     var d3 = await r3.json();
-    $('stTG').textContent = d3.total || '0';
-  }catch(e){ $('stTG').textContent='0'; }
+    if($('stTG')) $('stTG').textContent = d3.total || '0';
+  }catch(e){ if($('stTG')) $('stTG').textContent='0'; }
 }
 
 /* ---------- LIVE TV ---------- */
 async function loadTV(){
   var grid = $('tvGrid');
-  grid.innerHTML = '<div class="loading">📺 Loading channels…</div>';
+  grid.innerHTML = '<div class="loading">'+String.fromCodePoint(0x1F4FA)+' Loading channels...</div>';
   try{
     var r = await fetch(API+'/api/live-tv');
     var d = await r.json();
@@ -1902,14 +1921,14 @@ async function loadTV(){
     $('tvWorking').textContent = d.working || 0;
     buildTVChips(d);
     filterTV();
-  }catch(e){ grid.innerHTML = '<div class="empty"><span>📺</span>Load nahi hua. Try again.</div>'; }
+  }catch(e){ grid.innerHTML = '<div class="empty"><span>'+String.fromCodePoint(0x1F4FA)+'</span>Load nahi hua. Try again.</div>'; }
 }
 
 function buildTVChips(d){
   var counts = (d.categories && d.categories.counts) || {};
   var wk = (d.categories && d.categories.working) || {};
   var h = '<button class="chip'+(state.tvCat==='all'?' active':'')+'" data-tvcat="all">All ('+(d.total||0)+')</button>';
-  h += '<button class="chip'+(state.tvCat==='hindi'?' active':'')+'" data-tvcat="hindi">🇮🇳 Hindi ('+(d.hindi||0)+')</button>';
+  h += '<button class="chip'+(state.tvCat==='hindi'?' active':'')+'" data-tvcat="hindi">'+String.fromCodePoint(0x1F1EE,0x1F1F3)+' Hindi ('+(d.hindi||0)+')</button>';
   var names = Object.keys(counts).sort(function(a,b){ return (wk[b]||0)-(wk[a]||0); });
   names.forEach(function(n){
     h += '<button class="chip'+(state.tvCat===n?' active':'')+'" data-tvcat="'+n+'">'+n+' <span class="chip-w">'+(wk[n]||0)+'</span>/'+(counts[n]||0)+'</button>';
@@ -1938,15 +1957,15 @@ function filterTV(){
 function renderTV(channels){
   tvView = channels;
   var grid = $('tvGrid');
-  if (!channels.length){ grid.innerHTML = '<div class="empty"><span>📺</span>Koi channel nahi mila</div>'; return; }
+  if (!channels.length){ grid.innerHTML = '<div class="empty"><span>'+String.fromCodePoint(0x1F4FA)+'</span>Koi channel nahi mila</div>'; return; }
   var h = '';
   channels.forEach(function(ch, i){
     var badge = '';
     if (ch.working) badge += '<span class="ch-badge ok">● Live</span>';
     else badge += '<span class="ch-badge warn">⚠️ Try</span>';
     if (ch.quality >= 4) badge += '<span class="ch-badge hd">HD</span>';
-    if (ch.hindi) badge += '<span class="ch-badge hindi">🇮🇳</span>';
-    var logo = ch.logo ? '<div class="tv-card-logo"><img src="'+esc(ch.logo)+'" loading="lazy" alt=""></div>' : '<div class="tv-card-logo noimg">📺</div>';
+    if (ch.hindi) badge += '<span class="ch-badge hindi">'+String.fromCodePoint(0x1F1EE,0x1F1F3)+'</span>';
+    var logo = ch.logo ? '<div class="tv-card-logo"><img src="'+esc(ch.logo)+'" loading="lazy" alt=""></div>' : '<div class="tv-card-logo noimg">'+String.fromCodePoint(0x1F4FA)+'</div>';
     h += '<div class="tv-card'+(ch.working?'':' dead')+'" data-tvplay="'+i+'">';
     h += logo;
     h += '<div class="tv-card-info"><div class="tv-card-name">'+esc(ch.name)+'</div>';
@@ -1954,7 +1973,7 @@ function renderTV(channels){
   });
   grid.innerHTML = h;
   grid.querySelectorAll('.tv-card-logo img').forEach(function(img){
-    img.addEventListener('error', function(){ img.parentElement.innerHTML='📺'; img.parentElement.classList.add('noimg'); });
+    img.addEventListener('error', function(){ img.parentElement.innerHTML=String.fromCodePoint(0x1F4FA); img.parentElement.classList.add('noimg'); });
   });
 }
 
@@ -1963,7 +1982,7 @@ function playTV(idx){
   if (!ch || !ch.url) return;
   var video = $('tvVideo'), ph = $('tvPlaceholder'), bar = $('tvBar'), status = $('tvPlaying');
   video.style.display = 'block'; ph.style.display = 'none'; bar.style.display = 'flex';
-  status.textContent = ch.name + ' — loading…';
+  status.textContent = ch.name + ' — loading...';
   if (window.__hls){ try{window.__hls.destroy();}catch(e){} window.__hls = null; }
   var src = API + '/api/live-tv/proxy?url=' + encodeURIComponent(ch.url);
   var canHls = window.Hls && Hls.isSupported();
@@ -2000,16 +2019,16 @@ function showTVError(name, err){
 
 /* ---------- TELEGRAM ---------- */
 async function loadTG(){
-  $('tgMessages').innerHTML = '<div class="loading">📱 Loading…</div>';
+  $('tgMessages').innerHTML = '<div class="loading">'+String.fromCodePoint(0x1F4F1)+' Loading...</div>';
   try{
     var r = await fetch(API+'/api/telegram/stats');
     var d = await r.json();
-    $('tgStats').innerHTML = '<div class="tg-stat">📱 <span class="num">'+(d.total||0)+'</span> Messages</div><div class="tg-stat">🎥 <span class="num">'+(d.videos||0)+'</span> Videos</div><div class="tg-stat">📷 <span class="num">'+(d.photos||0)+'</span> Photos</div>';
+    $('tgStats').innerHTML = '<div class="tg-stat">'+String.fromCodePoint(0x1F4F1)+' <span class="num">'+(d.total||0)+'</span> Messages</div><div class="tg-stat">🎥 <span class="num">'+(d.videos||0)+'</span> Videos</div><div class="tg-stat">📷 <span class="num">'+(d.photos||0)+'</span> Photos</div>';
     var r2 = await fetch(API+'/api/telegram/messages');
     var d2 = await r2.json();
     tgMessages = d2.messages || [];
     renderTGMessages(tgMessages);
-  }catch(e){ $('tgMessages').innerHTML = '<div class="empty"><span>📱</span>Load nahi hua</div>'; }
+  }catch(e){ $('tgMessages').innerHTML = '<div class="empty"><span>'+String.fromCodePoint(0x1F4F1)+'</span>Load nahi hua</div>'; }
 }
 
 function setTGType(type){ state.tgType = type; filterTGMessages(); }
@@ -2030,7 +2049,7 @@ function filterTGMessages(){
 
 function renderTGMessages(msgs){
   var el = $('tgMessages');
-  if (!msgs.length){ el.innerHTML = '<div class="empty"><span>📱</span>Koi message nahi</div>'; return; }
+  if (!msgs.length){ el.innerHTML = '<div class="empty"><span>'+String.fromCodePoint(0x1F4F1)+'</span>Koi message nahi</div>'; return; }
   var h = '';
   msgs.forEach(function(m){
     h += '<div class="tg-msg">';
@@ -2058,7 +2077,7 @@ function renderTGMessages(msgs){
 async function loadMovies(type, btn){
   document.querySelectorAll('[data-mtype]').forEach(function(b){ b.classList.remove('active'); });
   if (btn) btn.classList.add('active');
-  $('moviesGrid').innerHTML = '<div class="loading">Loading…</div>';
+  $('moviesGrid').innerHTML = '<div class="loading">Loading...</div>';
   try{
     var r = await fetch(API+'/api/movies?type='+type);
     var d = await r.json();
@@ -2072,8 +2091,8 @@ async function loadMovies(type, btn){
         h += '<div class="meta"><span>⭐ '+((m.rating||0).toFixed(1))+'</span><span>'+(m.year||'')+'</span></div></div></div>';
       });
       el.innerHTML = h;
-    } else { el.innerHTML = '<div class="empty"><span>🎬</span>Movies nahi milin</div>'; }
-  }catch(e){ $('moviesGrid').innerHTML = '<div class="empty"><span>🎬</span>Error</div>'; }
+    } else { el.innerHTML = '<div class="empty"><span>'+String.fromCodePoint(0x1F3AC)+'</span>Movies nahi milin</div>'; }
+  }catch(e){ $('moviesGrid').innerHTML = '<div class="empty"><span>'+String.fromCodePoint(0x1F3AC)+'</span>Error</div>'; }
 }
 
 /* ---------- BOOKS ---------- */
@@ -2081,7 +2100,7 @@ async function loadBooks(type, btn){
   document.querySelectorAll('[data-btype]').forEach(function(b){ b.classList.remove('active'); });
   if (btn) btn.classList.add('active');
   var q = ($('bookSearch') ? $('bookSearch').value.trim() : '') || type || 'hindi';
-  $('booksGrid').innerHTML = '<div class="loading">Loading books…</div>';
+  $('booksGrid').innerHTML = '<div class="loading">Loading books...</div>';
   try{
     var r = await fetch(API+'/api/books?q='+encodeURIComponent(q));
     var d = await r.json();
@@ -2093,12 +2112,12 @@ async function loadBooks(type, btn){
         h += b.cover ? '<img src="'+esc(b.cover)+'" loading="lazy" alt="">' : '<img src="" alt="" style="background:var(--card2)">';
         h += '<div class="info"><h4>'+esc(b.title)+'</h4>';
         h += '<div class="meta"><span>'+esc(b.author||'')+'</span><span>'+(b.year||'')+'</span></div>';
-        if (b.read_url) h += '<a href="'+esc(b.read_url)+'" target="_blank" class="book-link" style="margin-top:6px">📖 Read Free</a>';
+        if (b.read_url) h += '<a href="'+esc(b.read_url)+'" target="_blank" class="book-link" style="margin-top:6px">'+String.fromCodePoint(0x1F4D6)+' Read Free</a>';
         h += '</div></div>';
       });
       el.innerHTML = h;
-    } else { el.innerHTML = '<div class="empty"><span>📚</span>Books nahi mili</div>'; }
-  }catch(e){ $('booksGrid').innerHTML = '<div class="empty"><span>📚</span>Error</div>'; }
+    } else { el.innerHTML = '<div class="empty"><span>'+String.fromCodePoint(0x1F4DA)+'</span>Books nahi mili</div>'; }
+  }catch(e){ $('booksGrid').innerHTML = '<div class="empty"><span>'+String.fromCodePoint(0x1F4DA)+'</span>Error</div>'; }
 }
 
 /* ---------- SEARCH ---------- */
@@ -2106,15 +2125,15 @@ async function doSearch(){
   var q = ($('searchInput') ? $('searchInput').value.trim() : '');
   if (!q) return;
   var el = $('searchResults');
-  el.innerHTML = '<div class="loading">🔍 Searching…</div>';
+  el.innerHTML = '<div class="loading">'+String.fromCodePoint(0x1F50D)+' Searching...</div>';
   try{
     var r = await fetch(API+'/api/search?q='+encodeURIComponent(q));
     var d = await r.json();
     var h = ''; var total = 0;
-    (d.movies||[]).forEach(function(m){ total++; h+='<div class="sr-card">'+(m.image?'<img class="sr-img" src="'+esc(m.image)+'" alt="">':'')+'<div class="sr-info"><h3>'+esc(m.title)+'</h3><div class="sr-meta"><span class="sr-tag movie">🎬 Movie</span>'+(m.rating?'<span>⭐ '+m.rating+'</span>':'')+(m.year?'<span>'+m.year+'</span>':'')+'</div>'+(m.overview?'<p style="font-size:12px;color:var(--text2)">'+esc(m.overview.substring(0,100))+'…</p>':'')+'</div></div>'; });
-    (d.books||[]).forEach(function(b){ total++; h+='<div class="sr-card">'+(b.cover?'<img class="sr-img" src="'+esc(b.cover)+'" alt="">':'')+'<div class="sr-info"><h3>'+esc(b.title)+'</h3><div class="sr-meta"><span class="sr-tag book">📚 Book</span><span>'+esc(b.author||'')+'</span></div>'+(b.read_url?'<a href="'+esc(b.read_url)+'" target="_blank" class="book-link">📖 Read Free</a>':'')+'</div></div>'; });
-    (d.tg||[]).forEach(function(t){ total++; h+='<div class="sr-card"><div class="sr-info"><h3>'+esc(t.text||'')+'</h3><div class="sr-meta"><span class="sr-tag tg">📱 Telegram</span><span>'+esc(t.from||'')+'</span>'+(t.hasVideo?'<span>🎥 Video</span>':'')+'</div></div></div>'; });
-    if (!total) h = '<div class="empty"><span>🔍</span>Kuchh nahi mila</div>';
+    (d.movies||[]).forEach(function(m){ total++; h+='<div class="sr-card">'+(m.image?'<img class="sr-img" src="'+esc(m.image)+'" alt="">':'')+'<div class="sr-info"><h3>'+esc(m.title)+'</h3><div class="sr-meta"><span class="sr-tag movie">'+String.fromCodePoint(0x1F3AC)+' Movie</span>'+(m.rating?'<span>⭐ '+m.rating+'</span>':'')+(m.year?'<span>'+m.year+'</span>':'')+'</div>'+(m.overview?'<p style="font-size:12px;color:var(--text2)">'+esc(m.overview.substring(0,100))+'...</p>':'')+'</div></div>'; });
+    (d.books||[]).forEach(function(b){ total++; h+='<div class="sr-card">'+(b.cover?'<img class="sr-img" src="'+esc(b.cover)+'" alt="">':'')+'<div class="sr-info"><h3>'+esc(b.title)+'</h3><div class="sr-meta"><span class="sr-tag book">'+String.fromCodePoint(0x1F4DA)+' Book</span><span>'+esc(b.author||'')+'</span></div>'+(b.read_url?'<a href="'+esc(b.read_url)+'" target="_blank" class="book-link">'+String.fromCodePoint(0x1F4D6)+' Read Free</a>':'')+'</div></div>'; });
+    (d.tg||[]).forEach(function(t){ total++; h+='<div class="sr-card"><div class="sr-info"><h3>'+esc(t.text||'')+'</h3><div class="sr-meta"><span class="sr-tag tg">'+String.fromCodePoint(0x1F4F1)+' Telegram</span><span>'+esc(t.from||'')+'</span>'+(t.hasVideo?'<span>🎥 Video</span>':'')+'</div></div></div>'; });
+    if (!total) h = '<div class="empty"><span>'+String.fromCodePoint(0x1F50D)+'</span>Kuchh nahi mila</div>';
     el.innerHTML = h;
   }catch(e){ el.innerHTML = '<div class="empty"><span>⚠️</span>Search fail</div>'; }
 }
@@ -2147,8 +2166,8 @@ async function sendChat(){
   if (!msg) return;
   inp.value = '';
   var msgs = $('chatMsgs');
-  msgs.innerHTML += '<div class="msg user"><div class="msg-label">👤 You</div><p>'+esc(msg)+'</p></div>';
-  msgs.innerHTML += '<div class="msg ai"><div class="msg-label">🧠 Thinking…</div><p class="typing"><i></i><i></i><i></i></p></div>';
+  msgs.innerHTML += '<div class="msg user"><div class="msg-label">'+String.fromCodePoint(0x1F464)+' You</div><p>'+esc(msg)+'</p></div>';
+  msgs.innerHTML += '<div class="msg ai"><div class="msg-label">'+String.fromCodePoint(0x1F9E0)+' Thinking...</div><p class="typing"><i></i><i></i><i></i></p></div>';
   msgs.scrollTop = msgs.scrollHeight;
   try{
     var r = await fetch(API+'/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})});
@@ -2170,7 +2189,7 @@ async function loadFamilyRoom(){
     var mEl = $('familyMembers');
     if (mEl && md.agents){
       var mh = '';
-      md.agents.forEach(function(a){ mh+='<div class="family-member"><span class="fm-emoji">'+esc(a.emoji)+'</span><div><span class="fm-name">'+esc(a.name)+'</span><div class="fm-role">'+esc(a.role)+'</div></div></div>'; });
+      md.agents.forEach(function(a){ mh+='<div class="family-member"><span class="fm-emoji">'+a.emoji+'</span><div><span class="fm-name">'+esc(a.name)+'</span><div class="fm-role">'+esc(a.role)+'</div></div></div>'; });
       mEl.innerHTML = mh;
     }
   }catch(e){}
@@ -2189,7 +2208,7 @@ function renderFamilyFeed(session){
   if (!msgs.length){ el.innerHTML='<div class="family-empty"><div class="family-empty-icon">👨‍👩‍👧‍👦</div><h3>Family Room Khali Hai</h3><p>Start Discussion dabao!</p></div>'; if(topicEl)topicEl.textContent='—'; return; }
   var h = '';
   msgs.forEach(function(m){
-    if (m.text && m.text.startsWith('🌅')){
+    if (m.text && m.text.indexOf(String.fromCodePoint(0x1F305))===0){
       h += '<div class="family-msg-topic">'+esc(m.text)+'</div>';
       if (topicEl) topicEl.textContent = m.text.substring(0, 80);
     } else {
@@ -2204,8 +2223,8 @@ function renderFamilyFeed(session){
 
 async function startFamilyDiscussion(){
   var btn = $('familyStart');
-  if (btn){ btn.classList.add('loading'); btn.textContent = '⏳ Discussion chal rahi hai…'; }
-  $('familyFeed').innerHTML = '<div class="family-loading"><div class="spinner"></div><p>Agents baat kar rahe hain… ☕</p></div>';
+  if (btn){ btn.classList.add('loading'); btn.textContent = '⏳ Discussion chal rahi hai...'; }
+  $('familyFeed').innerHTML = '<div class="family-loading"><div class="spinner"></div><p>Agents baat kar rahe hain... ☕</p></div>';
   try{
     var r = await fetch(API+'/api/family-chat/start', {method:'POST'});
     var d = await r.json();
@@ -2229,8 +2248,8 @@ async function loadCatalog(){
         h += '<div class="info"><h4>'+esc(item.title)+'</h4><div class="meta"><span>'+esc(item.type)+'</span><span>'+(item.year||'')+'</span></div></div></div>';
       });
       el.innerHTML = h;
-    } else { el.innerHTML = '<div class="empty"><span>📁</span>Khali hai. Add karo!</div>'; }
-  }catch(e){ $('catalogList').innerHTML='<div class="empty"><span>📁</span>Error</div>'; }
+    } else { el.innerHTML = '<div class="empty"><span>'+String.fromCodePoint(0x1F4C1)+'</span>Khali hai. Add karo!</div>'; }
+  }catch(e){ $('catalogList').innerHTML='<div class="empty"><span>'+String.fromCodePoint(0x1F4C1)+'</span>Error</div>'; }
 }
 
 async function addToCatalog(){
