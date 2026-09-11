@@ -1390,8 +1390,8 @@ const INDEX_HTML = `<!DOCTYPE html>
 
 const STYLE_CSS = `:root{
   --bg:#05060a;--bg2:#0b0e18;
-  --card:rgba(255,255,255,.05);--card-solid:#10131f;--card2:rgba(255,255,255,.08);
-  --border:rgba(255,255,255,.09);--border2:rgba(255,255,255,.18);
+  --card:rgba(255,255,255,.10);--card-solid:#141828;--card2:rgba(255,255,255,.15);
+  --border:rgba(255,255,255,.14);--border2:rgba(255,255,255,.25);
   --text:#f4f6ff;--text2:#96a0bb;
   --accent:#22d3ee;--accent2:#a78bfa;--green:#34d399;--amber:#fbbf24;--red:#f87171;
   --grad:linear-gradient(135deg,#22d3ee,#a78bfa);
@@ -1401,7 +1401,7 @@ const STYLE_CSS = `:root{
 }
 [data-theme="light"]{
   --bg:#eef1f8;--bg2:#ffffff;
-  --card:#ffffff;--card-solid:#ffffff;--card2:#f1f4fb;
+  --card:rgba(255,255,255,.92);--card-solid:#ffffff;--card2:rgba(0,0,0,.04);
   --border:rgba(15,23,42,.10);--border2:rgba(15,23,42,.22);
   --text:#0f172a;--text2:#5a6478;
   --shadow:0 10px 30px rgba(15,23,42,.10);
