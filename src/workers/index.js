@@ -401,8 +401,24 @@ async function handleTelegramFile(request, url, env) {
     const msg = await env.KV_STORE.get(`msg:${chatId}:${msgId}`, { type: 'json' });
     if (!msg) return json({ error: 'Message not found' }, 404);
     const file = msg.video || msg.document || msg.audio;
-    if (!file || !file.url) return json({ error: 'No file URL' }, 404);
-    return json({ url: file.url, size: file.size, name: file.name, mime: file.mime, fileId: file.fileId });
+    if (!file) return json({ error: 'No file' }, 404);
+    // Re-fetch fresh URL from Telegram API
+    let freshUrl = file.url || '';
+    if (file.fileId && env.TG_BOT_TOKEN) {
+      try {
+        const fResp = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/getFile?file_id=${file.fileId}`);
+        const fData = await fResp.json();
+        if (fData.ok && fData.result?.file_path) {
+          freshUrl = `https://api.telegram.org/file/bot${env.TG_BOT_TOKEN}/${fData.result.file_path}`;
+        }
+      } catch (e) {}
+    }
+    if (!freshUrl && file.size && file.size > 20 * 1024 * 1024) {
+      const tmeChat = String(chatId).replace('-100', '');
+      return json({ error: 'FILE_TOO_BIG', size: file.size, sizeLabel: Math.round(file.size/1024/1024)+' MB', tme_link: 'https://t.me/c/' + tmeChat + '/' + msgId, streamable: false });
+    }
+    if (!freshUrl) return json({ error: 'No file URL' }, 404);
+    return json({ url: freshUrl, size: file.size, name: file.name, mime: file.mime, fileId: file.fileId, streamable: true });
   } catch (e) {
     return json({ error: e.message }, 500);
   }
@@ -418,7 +434,31 @@ async function handleTelegramStream(request, url, env) {
     const msg = await env.KV_STORE.get(`msg:${chatId}:${msgId}`, { type: 'json' });
     if (!msg) return json({ error: 'Message not found' }, 404);
     const file = msg.video || msg.document || msg.audio;
-    if (!file || !file.url) return json({ error: 'No file' }, 404);
+    if (!file) return json({ error: 'No file' }, 404);
+
+    const TG_LIMIT = 20 * 1024 * 1024; // 20MB bot API limit
+    const tmeChat = String(chatId).replace('-100', '');
+    const tmeLink = `https://t.me/c/${tmeChat}/${msgId}`;
+
+    // Files over 20MB cannot be downloaded via bot API — return smart response
+    if (file.size && file.size > TG_LIMIT) {
+      return json({ error: 'FILE_TOO_BIG', size: file.size, sizeLabel: Math.round(file.size/1024/1024)+' MB', tme_link: tmeLink, msg_id: msgId }, 422);
+    }
+
+    // Always re-fetch fresh URL from Telegram API (cached URLs expire)
+    let streamUrl = '';
+    if (file.fileId && env.TG_BOT_TOKEN) {
+      try {
+        const fResp = await fetch(`https://api.telegram.org/bot${env.TG_BOT_TOKEN}/getFile?file_id=${file.fileId}`);
+        const fData = await fResp.json();
+        if (fData.ok && fData.result?.file_path) {
+          streamUrl = `https://api.telegram.org/file/bot${env.TG_BOT_TOKEN}/${fData.result.file_path}`;
+        }
+      } catch (e) {}
+    }
+    // Fallback to cached URL
+    if (!streamUrl) streamUrl = file.url || '';
+    if (!streamUrl) return json({ error: 'No file URL' }, 404);
 
     const headers = {
       'User-Agent': 'Mozilla/5.0 NJStream/1.0',
@@ -426,7 +466,7 @@ async function handleTelegramStream(request, url, env) {
     };
     if (range) headers['Range'] = range;
 
-    const resp = await fetch(file.url, { headers, redirect: 'follow' });
+    const resp = await fetch(streamUrl, { headers, redirect: 'follow' });
     const ct = resp.headers.get('Content-Type') || file.mime || 'video/mp4';
 
     const responseHeaders = {
@@ -950,8 +990,8 @@ const FAMILY_TURN_ORDER = ['main', 'telly', 'filmy', 'kitabi', 'sathi', 'khojo']
 async function familyChatTurn(agentId, topicText, env) {
   const a = AGENTS[agentId];
   if (!env.OPENROUTER_API_KEY) return null;
-  const model = env.OPENROUTER_MODEL || OPENROUTER_MODELS[1];
-  const system = getSystemPrompt(agentId) + '\n\nNOTE: Tum apni AI Family ke saath baat kar rahe ho. Casual, warm reply do. Hinglish, 60-120 words.';
+  const model = OPENROUTER_MODELS[Math.floor(Math.random() * OPENROUTER_MODELS.length)];
+  const system = getSystemPrompt(agentId) + '\n\nNOTE: Tum apni AI Family ke saath baat kar rahe ho. Casual, warm reply do. Hinglish, 60-120 words. Reply under 100 words.';
   try {
     const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -968,8 +1008,9 @@ async function familyChatTurn(agentId, topicText, env) {
           { role: 'user', content: topicText },
         ],
         temperature: 0.9,
-        max_tokens: 350,
+        max_tokens: 200,
       }),
+      signal: AbortSignal.timeout(12000),
     });
     const data = await resp.json();
     const text = data?.choices?.[0]?.message?.content;
@@ -991,12 +1032,15 @@ async function runFamilySession(env) {
     text: '🌅 Family meeting shuru! Aaj ka topic: ' + topic.topic + ' — ' + topic.prompt,
     model: 'family-hub', ts: Date.now(),
   };
-  const results = [];
-  for (const agentId of FAMILY_TURN_ORDER) {
-    const prompt = topic.prompt + '\nPrevious messages:\n' + results.slice(-3).map(r => r.name + ': ' + r.text).join('\n');
-    const entry = await familyChatTurn(agentId, prompt, env);
-    if (entry) results.push(entry);
-  }
+  // Run all agent calls in PARALLEL for speed
+  const promptBase = topic.prompt;
+  const turnPromises = FAMILY_TURN_ORDER.map(agentId => {
+    return familyChatTurn(agentId, promptBase, env);
+  });
+  const settled = await Promise.allSettled(turnPromises);
+  const results = settled
+    .filter(r => r.status === 'fulfilled' && r.value)
+    .map(r => r.value);
   const all = hist.concat([starter, ...results]).slice(-80);
   const session = { messages: all, updated: Date.now(), lastSession: { topic: topic.topic, started: starter.ts, turns: results.length + 1, members: results.map(r => r.emoji + ' ' + r.name) } };
   await env.KV_STORE.put('family_chat', JSON.stringify(session));
@@ -1566,7 +1610,17 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .tg-msg-text{font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .tg-msg-media{margin-top:8px}
 .tg-msg-media img{max-width:260px;border-radius:10px;cursor:pointer}
-.tg-msg-video{width:100%;max-width:400px;border-radius:10px;margin-top:8px}
+.tg-msg-video{width:100%;max-width:100%;border-radius:10px;margin-top:8px;background:#000;max-height:50vh;object-fit:contain}
+.video-big-notice{padding:20px;background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(167,139,250,.08));border:1px solid var(--border);border-radius:14px;display:flex;gap:16px;align-items:flex-start}
+.vbn-icon{font-size:42px;flex-shrink:0}
+.vbn-info{flex:1;min-width:0}
+.vbn-info h4{font-size:13px;font-weight:800;margin-bottom:4px;color:var(--text)}
+.vbn-size{font-size:12px;color:var(--accent);font-weight:600;margin-bottom:4px}
+.vbn-note{font-size:11px;color:var(--text2);margin-bottom:10px}
+.vbn-actions{display:flex;gap:8px;flex-wrap:wrap}
+.vbn-btn{padding:8px 16px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;transition:.15s;text-decoration:none;display:inline-block}
+.vbn-btn:hover{background:var(--grad);color:#fff;border-color:transparent}
+.vbn-btn.primary{background:var(--grad);color:#fff;border-color:transparent}
 .tg-msg-actions{display:flex;gap:6px;margin-top:8px}
 .tg-msg-actions button{padding:5px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--accent);font-size:11px;cursor:pointer;transition:.15s}
 .tg-msg-actions button:hover{background:var(--grad);color:#fff;border-color:transparent}
@@ -1820,14 +1874,24 @@ function syncThemeIcon(){
 
 /* ---------- Navigation ---------- */
 function go(page){
+  // Close sidebar on mobile
+  var side = $('side');
+  if (side) side.classList.remove('open');
+  // Toggle hamburger button state
+  var mtoggle = $('mtoggle');
+  if (mtoggle) mtoggle.classList.remove('open');
+  
   document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
   document.querySelectorAll('.nav-btn').forEach(function(b){ b.classList.remove('active'); });
   var pg = $('pg-'+page);
   if (pg) pg.classList.add('active');
   var btn = document.querySelector('[data-nav="'+page+'"]');
   if (btn) btn.classList.add('active');
-  $('side').classList.remove('open');
   state.page = page;
+  // Scroll to top of main content
+  var main = $('main');
+  if (main) main.scrollTop = 0;
+  // Load page data
   if (page==='home')    loadHome();
   if (page==='tv')      loadTV();
   if (page==='tg')      loadTG();
@@ -1835,6 +1899,8 @@ function go(page){
   if (page==='books')   loadBooks('hindi');
   if (page==='catalog') loadCatalog();
   if (page==='family')  loadFamilyRoom();
+  if (page==='search')  { var si = $('searchInput'); if(si) si.focus(); }
+  if (page==='login')   switchAuthTab('login');
 }
 
 /* ---------- Events ---------- */
@@ -1982,7 +2048,7 @@ function playTV(idx){
   if (!ch || !ch.url) return;
   var video = $('tvVideo'), ph = $('tvPlaceholder'), bar = $('tvBar'), status = $('tvPlaying');
   video.style.display = 'block'; ph.style.display = 'none'; bar.style.display = 'flex';
-  status.textContent = ch.name + ' — loading...';
+  status.textContent = ch.name + ' — loading... ⏳';
   if (window.__hls){ try{window.__hls.destroy();}catch(e){} window.__hls = null; }
   var src = API + '/api/live-tv/proxy?url=' + encodeURIComponent(ch.url);
   var canHls = window.Hls && Hls.isSupported();
@@ -2057,12 +2123,45 @@ function renderTGMessages(msgs){
     if (m.text) h += '<div class="tg-msg-text">'+esc(m.text)+'</div>';
     if (m.photo) h += '<div class="tg-msg-media"><img src="'+esc(m.photo)+'" loading="lazy" alt=""></div>';
     if (m.video){
-      var vurl = API+'/api/telegram/stream?msg_id='+m.id;
-      h += '<div class="tg-msg-media"><video class="tg-msg-video" controls preload="metadata" src="'+esc(vurl)+'"></video></div>';
+      var vsize = m.video.size || 0;
+      var MB = Math.round(vsize / (1024*1024));
+      var TG_LIMIT = 20 * 1024 * 1024;
+      if (vsize > TG_LIMIT){
+        // Large file — show Telegram deep link + info
+        var chatId = '-1002514429549';
+        var tmeUrl = 'https://t.me/c/' + chatId.replace('-100','') + '/' + m.id;
+        h += '<div class="tg-msg-media">';
+        h += '<div class="video-big-notice">';
+        h += '<div class="vbn-icon">'+String.fromCodePoint(0x1F4FA)+'</div>';
+        h += '<div class="vbn-info">';
+        h += '<h4>'+esc(m.video.name || m.text.substring(0,60) || 'Video')+'</h4>';
+        h += '<p class="vbn-size">'+String.fromCodePoint(0x1F4BE)+' '+MB+' MB'+String.fromCodePoint(0x1F504)+' '+(m.video.mime || 'video')+'</p>';
+        h += '<p class="vbn-note">'+String.fromCodePoint(0x2139,0xFE0F)+' Telegram Bot API 20MB limit — Large files stream via Telegram app</p>';
+        h += '<div class="vbn-actions">';
+        h += '<a href="'+esc(tmeUrl)+'" target="_blank" class="vbn-btn primary">'+String.fromCodePoint(0x25B6,0xFE0F)+' Watch in Telegram</a>';
+        h += '<a href="'+esc(tmeUrl)+'" target="_blank" class="vbn-btn">'+String.fromCodePoint(0x1F4E5)+' Open in Telegram</a>';
+        h += '</div>';
+        h += '</div>';
+        h += '</div>';
+        h += '</div>';
+      } else {
+        var vurl = API+'/api/telegram/stream?msg_id='+encodeURIComponent(m.id);
+        h += '<div class="tg-msg-media"><video class="tg-msg-video" controls preload="metadata" playsinline src="'+esc(vurl)+'"></video></div>';
+      }
     }
     if (m.document){
-      var durl = m.document.url || API+'/api/telegram/file?msg_id='+m.id;
-      h += '<div class="tg-msg-actions"><a href="'+esc(durl)+'" target="_blank" class="book-link">📥 Download '+esc(m.document.name||'file')+'</a></div>';
+      var dsize = m.document.size || 0;
+      var dMB = Math.round(dsize / (1024*1024));
+      if (dsize > 20 * 1024 * 1024){
+        var chatId2 = '-1002514429549';
+        var tmeUrl2 = 'https://t.me/c/' + chatId2.replace('-100','') + '/' + m.id;
+        h += '<div class="tg-msg-actions">';
+        h += '<a href="'+esc(tmeUrl2)+'" target="_blank" class="book-link">📥 Download ('+dMB+' MB) via Telegram</a>';
+        h += '</div>';
+      } else {
+        var durl = m.document.url || API+'/api/telegram/file?msg_id='+m.id;
+        h += '<div class="tg-msg-actions"><a href="'+esc(durl)+'" target="_blank" class="book-link">📥 Download '+esc(m.document.name||'file')+'</a></div>';
+      }
     }
     if (m.audio){
       var aurl = m.audio.url || API+'/api/telegram/stream?msg_id='+m.id;
