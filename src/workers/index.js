@@ -868,6 +868,10 @@ const OPENROUTER_MODELS = [
   'nex-agi/nex-n2.5-mini:free',
 ];
 
+const GROQ_MODELS = ['openai/gpt-oss-20b','openai/gpt-oss-120b','qwen/qwen3.8-27b','allam-2-7b'];
+const CERBERUS_MODELS = ['gpt-4o-mini','gpt-4o','claude-3-haiku-20240307'];
+const POLINATION_MODELS = ['openai','openai-large'];
+
 const AGENTS = {
   main: { name: 'NJ', emoji: '🧠', role: 'Head of House', personality: 'Wise, decisive, caring leader.', expertise: 'Everything.', tagline: 'NJStream ka mukhiya!' },
   telly: { name: 'Telly', emoji: '📺', role: 'TV Expert', personality: 'Energetic, loves Hindi channels.', expertise: 'Live TV, IPTV, HLS.', tagline: '900+ channels mere paas!' },
@@ -876,6 +880,101 @@ const AGENTS = {
   sathi: { name: 'Sathi', emoji: '📱', role: 'Telegram Agent', personality: 'Friendly, social.', expertise: 'Telegram data.', tagline: 'Telegram data sab aasan!' },
   khojo: { name: 'Khojo', emoji: '🔍', role: 'Search Agent', personality: 'Curious, thorough.', expertise: 'Cross-source search.', tagline: 'Dhoondho sab milega!' },
 };
+
+async function callGroq(system, message, env) {
+  if (!env.GROQ_API_KEY) return null;
+  const model = GROQ_MODELS[Math.floor(Math.random() * GROQ_MODELS.length)];
+  try {
+    const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + env.GROQ_API_KEY },
+      body: JSON.stringify({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: message }], temperature: 0.7, max_tokens: 500 }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    const text = data?.choices?.[0]?.message?.content;
+    if (text) return { response: text.trim(), model: 'groq/' + model, provider: 'groq' };
+    return null;
+  } catch (e) { return null; }
+}
+
+async function callCerberus(system, message, env) {
+  if (!env.CERBERUS_API_KEY) return null;
+  const model = CERBERUS_MODELS[Math.floor(Math.random() * CERBERUS_MODELS.length)];
+  // Try common API endpoints
+  const urls = ['https://api.cerberus.cloud/v1/chat/completions','https://openrouter.cerberus.cloud/v1/chat/completions'];
+  for (const url of urls) {
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + env.CERBERUS_API_KEY },
+        body: JSON.stringify({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: message }], temperature: 0.7, max_tokens: 500 }),
+        signal: AbortSignal.timeout(12000),
+      });
+      const data = await resp.json();
+      const text = data?.choices?.[0]?.message?.content;
+      if (text) return { response: text.trim(), model: 'cerberus/' + model, provider: 'cerberus' };
+    } catch (e) { continue; }
+  }
+  return null;
+}
+
+async function callPolination(system, message, env) {
+  if (!env.POLINATION_API_KEY) return null;
+  const model = POLINATION_MODELS[Math.floor(Math.random() * POLINATION_MODELS.length)];
+  try {
+    const resp = await fetch('https://text.pollinations.ai/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + env.POLINATION_API_KEY },
+      body: JSON.stringify({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: message }], temperature: 0.7, max_tokens: 500 }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    const text = data?.choices?.[0]?.message?.content;
+    if (text) return { response: text.trim(), model: 'polination/' + model, provider: 'polination' };
+    return null;
+  } catch (e) { return null; }
+}
+
+// Multi-provider fallback chain for any AI call
+async function callAnyAI(system, message, env, agentEmoji, agentName, agentId) {
+  // Try OpenRouter first
+  if (env.OPENROUTER_API_KEY) {
+    const model = OPENROUTER_MODELS[Math.floor(Math.random() * OPENROUTER_MODELS.length)];
+    try {
+      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + env.OPENROUTER_API_KEY, 'HTTP-Referer': 'https://njsoft-stream.njcreative123.workers.dev', 'X-Title': 'NJStream ' + agentName },
+        body: JSON.stringify({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: message }], temperature: 0.7, max_tokens: 500 }),
+        signal: AbortSignal.timeout(12000),
+      });
+      const data = await resp.json();
+      const text = data?.choices?.[0]?.message?.content;
+      if (text) return { worker: agentEmoji + ' ' + agentName, icon: agentEmoji, response: text.trim(), agent: agentId, model: data.model || model };
+    } catch (e) {}
+  }
+  // Try Groq
+  const groq = await callGroq(system, message, env);
+  if (groq) return { worker: agentEmoji + ' ' + agentName, icon: agentEmoji, response: groq.response, agent: agentId, model: groq.model };
+  // Try Polination
+  const poly = await callPolination(system, message, env);
+  if (poly) return { worker: agentEmoji + ' ' + agentName, icon: agentEmoji, response: poly.response, agent: agentId, model: poly.model };
+  // Try Cerberus
+  const cber = await callCerberus(system, message, env);
+  if (cber) return { worker: agentEmoji + ' ' + agentName, icon: agentEmoji, response: cber.response, agent: agentId, model: cber.model };
+  // Workers AI fallback
+  if (env.AI) {
+    try {
+      const resp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [{ role: 'system', content: system }, { role: 'user', content: message }],
+        max_tokens: 400,
+      });
+      const text = resp.response || resp;
+      if (text) return { worker: agentEmoji + ' ' + agentName, icon: agentEmoji, response: String(text), agent: agentId, model: '@cf/meta/llama-3.1-8b-instruct' };
+    } catch (e) {}
+  }
+  return null;
+}
 
 function getSystemPrompt(agentId) {
   const a = AGENTS[agentId];
@@ -952,22 +1051,11 @@ async function handleChat(request, env) {
   const message = body.message || '';
   if (!message) return json({ error: 'message required' }, 400);
   const agentId = routeToAgent(message);
-  const llm = await callOpenRouter(agentId, message, env, body.history || []);
-  if (llm) return json(llm);
-  if (env.AI) {
-    try {
-      const resp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-        messages: [
-          { role: 'system', content: getSystemPrompt(agentId) },
-          ...(body.history || []).slice(-4).map(h => ({ role: h.role, content: h.content })),
-          { role: 'user', content: message },
-        ],
-        max_tokens: 400,
-      });
-      const text = resp.response || resp;
-      if (text) return json({ worker: `${AGENTS[agentId].emoji} ${AGENTS[agentId].name}`, icon: AGENTS[agentId].emoji, response: String(text), agent: agentId, model: '@cf/meta/llama-3.1-8b-instruct' });
-    } catch (e) {}
-  }
+  const agent = AGENTS[agentId];
+  const system = getSystemPrompt(agentId);
+  // Try all AI providers
+  const result = await callAnyAI(system, message, env, agent.emoji, agent.name, agentId);
+  if (result) return json(result);
   return json(agentFallback(agentId, message));
 }
 
@@ -1030,37 +1118,34 @@ function familyFallback(agentId, topicText) {
 
 async function familyChatTurn(agentId, topicText, env) {
   const a = AGENTS[agentId];
-  if (!env.OPENROUTER_API_KEY) return familyFallback(agentId, topicText);
-  const model = OPENROUTER_MODELS[Math.floor(Math.random() * OPENROUTER_MODELS.length)];
   const system = getSystemPrompt(agentId) + '\n\nNOTE: Tum apni AI Family ke saath baat kar rahe ho. Casual, warm reply do. Hinglish, 60-120 words. Reply under 100 words.';
-  try {
-    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + env.OPENROUTER_API_KEY,
-        'HTTP-Referer': 'https://njsoft-stream.njcreative123.workers.dev',
-        'X-Title': 'NJStream Family ' + a.name,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: topicText },
-        ],
-        temperature: 0.9,
-        max_tokens: 200,
-      }),
-      signal: AbortSignal.timeout(12000),
-    });
-    const data = await resp.json();
-    const text = data?.choices?.[0]?.message?.content;
-    if (text) {
-      return { id: 'fc_' + Date.now() + '_' + agentId, agent: agentId, name: a.name, emoji: a.emoji, role: a.role, text: text.trim(), model: data.model || model, ts: Date.now() };
-    }
-    // Rate limited or error — use fallback
-    return familyFallback(agentId, topicText);
-  } catch (e) { return familyFallback(agentId, topicText); }
+  // Try all providers with 10s timeout each
+  // OpenRouter
+  if (env.OPENROUTER_API_KEY) {
+    const model = OPENROUTER_MODELS[Math.floor(Math.random() * OPENROUTER_MODELS.length)];
+    try {
+      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + env.OPENROUTER_API_KEY, 'HTTP-Referer': 'https://njsoft-stream.njcreative123.workers.dev', 'X-Title': 'NJStream Family ' + a.name },
+        body: JSON.stringify({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: topicText }], temperature: 0.9, max_tokens: 200 }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await resp.json();
+      const text = data?.choices?.[0]?.message?.content;
+      if (text) return { id: 'fc_' + Date.now() + '_' + agentId, agent: agentId, name: a.name, emoji: a.emoji, role: a.role, text: text.trim(), model: data.model || model, ts: Date.now() };
+    } catch (e) {}
+  }
+  // Groq
+  const groqResult = await callGroq(system, topicText, env);
+  if (groqResult) return { id: 'fc_' + Date.now() + '_' + agentId, agent: agentId, name: a.name, emoji: a.emoji, role: a.role, text: groqResult.response, model: groqResult.model, ts: Date.now() };
+  // Polination
+  const polyResult = await callPolination(system, topicText, env);
+  if (polyResult) return { id: 'fc_' + Date.now() + '_' + agentId, agent: agentId, name: a.name, emoji: a.emoji, role: a.role, text: polyResult.response, model: polyResult.model, ts: Date.now() };
+  // Cerberus
+  const cberResult = await callCerberus(system, topicText, env);
+  if (cberResult) return { id: 'fc_' + Date.now() + '_' + agentId, agent: agentId, name: a.name, emoji: a.emoji, role: a.role, text: cberResult.response, model: cberResult.model, ts: Date.now() };
+  // Static fallback
+  return familyFallback(agentId, topicText);
 }
 
 async function runFamilySession(env) {
@@ -1156,7 +1241,7 @@ async function handleStatus(env) {
     d1: env.CATALOG_DB ? 'connected' : 'not_configured',
     tg_messages: env.KV_STORE ? 'connected' : 'not_configured',
     tmdb: env.TMDB_KEY ? 'configured' : 'needs_key',
-    ai: env.OPENROUTER_API_KEY ? 'openrouter_active' : (env.AI ? 'workers_ai' : 'fallback_mode'),
+    ai: [env.OPENROUTER_API_KEY?'openrouter':'', env.GROQ_API_KEY?'groq':'', env.POLINATION_API_KEY?'polination':'', env.AI?'workers_ai':''].filter(Boolean).join('+') || 'fallback',
     iptv: 'ready',
     version: '7.5.0',
   };
@@ -2054,7 +2139,7 @@ function go(page){
   // Scroll to top of main content
   var main = $('main');
   if (main) main.scrollTop = 0;
-  // Load page data
+  // Load page data — EVERY page dynamically fetches fresh data
   if (page==='home')    loadHome();
   if (page==='tv')      loadTV();
   if (page==='tg')      loadTG();
@@ -2062,7 +2147,8 @@ function go(page){
   if (page==='books')   loadBooks('hindi');
   if (page==='catalog') loadCatalog();
   if (page==='family')  loadFamilyRoom();
-  if (page==='search')  { var si = $('searchInput'); if(si) si.focus(); }
+  if (page==='ai')      { loadAgentStrip(); initAIChat(); }
+  if (page==='search')  { var si = $('searchInput'); if(si) si.focus(); loadSearchTrending(); }
   if (page==='login')   switchAuthTab('login');
 }
 
@@ -2502,6 +2588,54 @@ async function loadAgentStrip(){
       });
     });
   }catch(e){}
+}
+
+// Fresh AI chat welcome — dynamic per visit
+function initAIChat(){
+  var msgs = $('chatMsgs');
+  if (!msgs) return;
+  var hour = new Date().getHours();
+  var greet = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+  var dateStr = new Date().toLocaleDateString('hi-IN', { weekday:'long', day:'numeric', month:'long' });
+  var agentPrompt = 'Kaunse agent se baat karni hai? Maine poochha kya humne kiya:';
+  // Show fresh greeting with providers info
+  msgs.innerHTML = '';
+  msgs.innerHTML = '<div class="msg ai"><div class="msg-label">'+String.fromCodePoint(0x1F9E0)+' NJ (Head of House)</div><p>'+greet+'! 🙏 Aaj <b>'+esc(dateStr)+'</b> hai.<br><br>Mere saath 6 agents hain:<br>'+String.fromCodePoint(0x1F4FA)+' Telly — Live TV checker<br>'+String.fromCodePoint(0x1F3AC)+' Filmy — Movie expert<br>'+String.fromCodePoint(0x1F4DA)+' Kitabi — Book reader<br>'+String.fromCodePoint(0x1F4F1)+' Sathi — Telegram data<br>'+String.fromCodePoint(0x1F50D)+' Khojo — Search master<br><br>Kya dekhna ya janna hai? Poocho! 😊</p>'
+    + '<div class="quick-asks">'
+    + '<button data-ask="Live TV dikhao">📺 TV</button>'
+    + '<button data-ask="Movies dikhao">🎬 Movies</button>'
+    + '<button data-ask="Books dikhao">📚 Books</button>'
+    + '<button data-ask="Telegram data">📱 Telegram</button>'
+    + '<button data-ask="Status batao">⚙️ Status</button>'
+    + '</div></div>';
+}
+
+// Search page — show trending items so it never feels empty
+async function loadSearchTrending(){
+  var el = $('searchResults');
+  if (!el) return;
+  { try { delete el.dataset.loaded; } catch(e){}
+    el.dataset.loaded = '1';
+    el.innerHTML = '<div class="loading">Trending content load ho raha hai…</div>';
+    try{
+      var r = await fetch(API+'/api/telegram/messages');
+      var d = await r.json();
+      var msgs = (d.messages || []).slice(0, 5);
+      if (msgs.length){
+        var h = '<div class="sr-card"><div class="sr-info"><h3 style="color:var(--accent)">🔥 Trending Telegram Content</h3><p style="font-size:12px;color:var(--text2);margin-top:4px">Type karke search karo — ya ye dekho:</p></div></div>';
+        msgs.forEach(function(m){
+          var txt = (m.text || '').replace(/\n/g, ' ').substring(0, 80);
+          if (!txt) txt = m.video ? '🎥 Video' : m.document ? '📄 '+(m.document.name||'Document') : m.photo ? '📷 Photo' : 'Message';
+          h += '<div class="sr-card" data-nav="tg"><div class="sr-info"><h3>'+esc(txt)+'</h3><div class="sr-meta"><span class="sr-tag tg">'+String.fromCodePoint(0x1F4F1)+' Telegram</span><span>@'+esc(m.from||'unknown')+'</span>'+(m.video?'<span>🎥 Video</span>':'')+(m.document?'<span>📄 Doc</span>':'')+'</div></div></div>';
+        });
+        el.innerHTML = h;
+      } else {
+        el.innerHTML = '<div class="empty"><span>'+String.fromCodePoint(0x1F50D)+'</span>Search karo — movies, books, Telegram data…</div>';
+      }
+    }catch(e){
+      el.innerHTML = '<div class="empty"><span>'+String.fromCodePoint(0x1F50D)+'</span>Search karo — movies, books, Telegram data…</div>';
+    }
+  }
 }
 
 async function sendChat(){
