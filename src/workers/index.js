@@ -987,9 +987,50 @@ const FAMILY_AGENDA = [
 
 const FAMILY_TURN_ORDER = ['main', 'telly', 'filmy', 'kitabi', 'sathi', 'khojo'];
 
+function familyFallback(agentId, topicText) {
+  const a = AGENTS[agentId];
+  const t = topicText.toLowerCase();
+  const ts = Date.now();
+  const responses = {
+    main: [
+      'Sab logon ko Good morning! ☕ Aaj ka plan clear hai — TV check, Movies explore, Books padho. Family kaam karte rahi, saath mein masti bhi! 🏠✨',
+      'Sab log ek saath kaam karein — Team work makes dream work! 💪 NJStream har din behtar ho raha hai. Keep going family! 🚀',
+      'Main sabka khayal rakhta hoon. Koi problem ho toh batana. Hum sab milkar solve karenge! 🤝',
+    ],
+    telly: [
+      '📺 Live TV update — Abhi 900+ channels available hain! Hindi news aur entertainment sab chal raha hai. Sports bhi tagda hai aaj. Star Sports aur DD Sports verified working hain! ✅',
+      'Aaj ki TV report: News channels sab live hain — NDTV, Aaj Tak, ABP. Hindi entertainment bhi smooth hai. Kabaddi match bhi chal raha hai DD Sports pe! 🏏',
+      'IPTV sources se Hindi channels bahut achhe aa rahe hain. Kids section mein Cartoon Network aur Pogo bhi working hai. Sports channels test kar raha hoon! 🎮',
+    ],
+    filmy: [
+      '🎬 Movie recommendation: Golmaal Fun Unlimited classic hai — comedy ka king! Anonymous bhi hai watchlist mein. Hollywood + Hindi dono available hain. Rating 8+ hai! ⭐',
+      'Aaj raat ke liye movie pick kar liya — comedy ya thriller? Dono genres mein achhi movies hain. TMDB se Hindi movies ka collection daily update ho raha hai! 🍿',
+      'Movie buff mode ON! Aaj explore karo — classic Bollywood, new releases, sab hain. Rating wise sort karna mat bhoolna! 🎬✨',
+    ],
+    kitabi: [
+      '📚 Book suggestion: "भारत का संघर्ष सुभाष चंद्र बोस" — PDF aur EPUB dono available hain. History lovers ke liye best hai. Padho aur knowledge banao! 📖',
+      'Books library mein Hindi literature ka bahut achha collection hai. Science, history, fiction — sab genres mein books available hain. Open Library se free reading! 📚',
+      'Reading is dreaming with open eyes! 📚 PDF downloads bhi available hain. Hindi books ka collection daily grow ho raha hai. Padho aur batao kaisa laga!',
+    ],
+    sathi: [
+      '📱 Telegram group update — 57+ messages indexed hain. Movies, PDFs, EPUBs sab available hain. Videos stream ho rahi hain website par! Large files Telegram link se bhi accessible. 🔗',
+      'Telegram data sync ho raha hai. New content aata rahega. Group se sab kuch readable banaya ja raha hai — messages, videos, documents. 📱✅',
+      'Sathi reporting! 📱 Telegram group mein bahut accha content hai. Movies ke saath PDFs aur ebooks bhi hain. Download + Watch dono options available! 🎬📚',
+    ],
+    khojo: [
+      '🔍 Fun fact: Cloudflare Workers 300+ data centers mein run karte hain — matlab hamara site duniya mein kahin se bhi fast load hota hai! ⚡',
+      'Interesting finding: 900+ IPTV channels world ke alag alag countries se aa rahe hain. Hindi channels bhi bahut popular hain! 🌍📺',
+      'Search kaam kar raha hai aur results daily improve ho rahe hain. Movies, books, Telegram — sab ek saath search! 🔍✨',
+    ],
+  };
+  const opts = responses[agentId] || responses.main;
+  const text = opts[Math.floor(Math.random() * opts.length)];
+  return { id: 'fc_' + ts + '_' + agentId, agent: agentId, name: a.name, emoji: a.emoji, role: a.role, text: text, model: 'smart-fallback', ts: ts };
+}
+
 async function familyChatTurn(agentId, topicText, env) {
   const a = AGENTS[agentId];
-  if (!env.OPENROUTER_API_KEY) return null;
+  if (!env.OPENROUTER_API_KEY) return familyFallback(agentId, topicText);
   const model = OPENROUTER_MODELS[Math.floor(Math.random() * OPENROUTER_MODELS.length)];
   const system = getSystemPrompt(agentId) + '\n\nNOTE: Tum apni AI Family ke saath baat kar rahe ho. Casual, warm reply do. Hinglish, 60-120 words. Reply under 100 words.';
   try {
@@ -1017,8 +1058,9 @@ async function familyChatTurn(agentId, topicText, env) {
     if (text) {
       return { id: 'fc_' + Date.now() + '_' + agentId, agent: agentId, name: a.name, emoji: a.emoji, role: a.role, text: text.trim(), model: data.model || model, ts: Date.now() };
     }
-    return null;
-  } catch (e) { return null; }
+    // Rate limited or error — use fallback
+    return familyFallback(agentId, topicText);
+  } catch (e) { return familyFallback(agentId, topicText); }
 }
 
 async function runFamilySession(env) {
@@ -1258,48 +1300,66 @@ const INDEX_HTML = `<!DOCTYPE html>
 
     <!-- HOME -->
     <section class="page active" id="pg-home">
-      <!-- HERO -->
-      <div class="hero">
-        <div class="hero-content">
-          <div class="hero-badge">🚀 Free Forever</div>
-          <h1 class="hero-title">NJ<span>Stream</span></h1>
-          <p class="hero-sub">Live TV • Movies • Books • Telegram • AI — Sab Kuch Free</p>
-          <div class="hero-actions">
-            <button class="hero-btn primary" data-nav="tv">📺 Live TV</button>
-            <button class="hero-btn" data-nav="movies">🎬 Movies</button>
-            <button class="hero-btn" data-nav="ai">🤖 AI Chat</button>
+      <!-- STREAM HERO -->
+      <div class="stream-hero">
+        <div class="sh-bg" id="shBg"></div>
+        <div class="sh-gradient"></div>
+        <div class="sh-content">
+          <div class="sh-badge"><span class="pulse-dot"></span> LIVE STREAMING PLATFORM</div>
+          <h1 class="sh-title">NJ<span>Stream</span></h1>
+          <p class="sh-sub">Live TV • Movies • Web Series • Books • Telegram • AI Family — Sab Kuch Free!</p>
+          <div class="sh-actions">
+            <button class="sh-btn primary" data-nav="tv">▶ Watch Live TV</button>
+            <button class="sh-btn" data-nav="movies">🎬 Explore Movies</button>
+            <button class="sh-btn" data-nav="family">👨‍👩‍👧‍👦 AI Family</button>
           </div>
-          <div class="hero-stats">
-            <div class="hero-stat"><span class="hs-val" id="stTV">…</span><span class="hs-label">Live Channels</span></div>
-            <div class="hero-stat"><span class="hs-val" id="stTG">…</span><span class="hs-label">TG Messages</span></div>
-            <div class="hero-stat"><span class="hs-val" id="stAI">🧠</span><span class="hs-label">AI Online</span></div>
+          <div class="sh-stats">
+            <div class="sh-stat"><span class="sh-stat-val" id="stTV">—</span><span class="sh-stat-label">Live Channels</span></div>
+            <div class="sh-stat"><span class="sh-stat-val" id="stTG">—</span><span class="sh-stat-label">TG Messages</span></div>
+            <div class="sh-stat"><span class="sh-stat-val" id="stMovies">—</span><span class="sh-stat-label">Movies</span></div>
+            <div class="sh-stat"><span class="sh-stat-val">🧠 6</span><span class="sh-stat-label">AI Agents</span></div>
           </div>
-        </div>
-        <div class="hero-visual">
-          <div class="hero-orb o1"></div>
-          <div class="hero-orb o2"></div>
-          <div class="hero-orb o3"></div>
         </div>
       </div>
 
-      <!-- FEATURES -->
-      <div class="features-section">
-        <h2 class="section-title">⚡ Features</h2>
-        <div class="features-grid">
-          <button class="feature-card" data-nav="tv"><div class="fc-icon">📺</div><h3>Live TV</h3><p>900+ IPTV channels — Hindi priority, categories, working verified</p></button>
-          <button class="feature-card" data-nav="tg"><div class="fc-icon">📱</div><h3>Telegram Data</h3><p>Browse, stream & download group messages, videos, files</p></button>
-          <button class="feature-card" data-nav="movies"><div class="fc-icon">🎬</div><h3>Movies</h3><p>Hindi & English from TMDB — posters, ratings, overviews</p></button>
-          <button class="feature-card" data-nav="books"><div class="fc-icon">📚</div><h3>Books</h3><p>Free from Open Library — read online, Hindi literature</p></button>
-          <button class="feature-card" data-nav="ai"><div class="fc-icon">🤖</div><h3>AI Chat</h3><p>6 AI agents — each with personality, powered by OpenRouter</p></button>
-          <button class="feature-card" data-nav="family"><div class="fc-icon">👨‍👩‍👧‍👦</div><h3>Family Room</h3><p>Watch AI agents talk, build trust, share experiences</p></button>
-          <button class="feature-card" data-nav="search"><div class="fc-icon">🔍</div><h3>Universal Search</h3><p>Search movies, books & Telegram data at once</p></button>
-          <button class="feature-card" data-nav="catalog"><div class="fc-icon">📁</div><h3>Catalog</h3><p>Save your favorites to D1 database</p></button>
+      <!-- TRENDING CHANNELS -->
+      <div class="home-section">
+        <div class="hs-head">
+          <h2 class="section-title">🔥 Trending Live Channels</h2>
+          <button class="hs-all" data-nav="tv">View All →</button>
+        </div>
+        <div class="ch-row" id="homeChannels"><div class="loading">Loading channels…</div></div>
+      </div>
+
+      <!-- LATEST TELEGRAM -->
+      <div class="home-section">
+        <div class="hs-head">
+          <h2 class="section-title">📱 Latest Telegram Content</h2>
+          <button class="hs-all" data-nav="tg">View All →</button>
+        </div>
+        <div class="tg-preview" id="homeTG"><div class="loading">Loading…</div></div>
+      </div>
+
+      <!-- QUICK ACCESS FEATURES -->
+      <div class="home-section">
+        <div class="hs-head">
+          <h2 class="section-title">🎯 Explore NJStream</h2>
+        </div>
+        <div class="explore-grid">
+          <button class="explore-card" data-nav="tv"><span class="ec-emoji">📺</span><div><h3>Live TV</h3><p>900+ channels, Hindi priority</p></div><span class="ec-arrow">→</span></button>
+          <button class="explore-card" data-nav="tg"><span class="ec-emoji">📱</span><div><h3>Telegram Hub</h3><p>Read, watch & download all</p></div><span class="ec-arrow">→</span></button>
+          <button class="explore-card" data-nav="movies"><span class="ec-emoji">🎬</span><div><h3>Movies</h3><p>Hindi & English — TMDB</p></div><span class="ec-arrow">→</span></button>
+          <button class="explore-card" data-nav="books"><span class="ec-emoji">📚</span><div><h3>Books & Ebooks</h3><p>Read online, free library</p></div><span class="ec-arrow">→</span></button>
+          <button class="explore-card" data-nav="ai"><span class="ec-emoji">🤖</span><div><h3>AI Chat</h3><p>6 agents — main + workers</p></div><span class="ec-arrow">→</span></button>
+          <button class="explore-card" data-nav="family"><span class="ec-emoji">👨‍👩‍👧‍👦</span><div><h3>AI Family Room</h3><p>Agents talk & build trust</p></div><span class="ec-arrow">→</span></button>
+          <button class="explore-card" data-nav="search"><span class="ec-emoji">🔍</span><div><h3>Universal Search</h3><p>One search — everything</p></div><span class="ec-arrow">→</span></button>
+          <button class="explore-card" data-nav="catalog"><span class="ec-emoji">📁</span><div><h3>My Catalog</h3><p>Favorites in D1 database</p></div><span class="ec-arrow">→</span></button>
         </div>
       </div>
 
-      <!-- SERVICES -->
-      <div class="services-section">
-        <h2 class="section-title">⚡ Live Services</h2>
+      <!-- SERVICES STATUS -->
+      <div class="home-section" style="display:none">
+        <div class="hs-head"><h2 class="section-title">⚡ Live Services</h2></div>
         <div class="svc-grid">
           <div class="svc"><div class="svc-icon">⚡</div><div class="svc-info"><h4>Cloudflare Worker</h4><p>Edge computing</p><span class="badge live">● Online</span></div></div>
           <div class="svc"><div class="svc-icon">🗄️</div><div class="svc-info"><h4>KV Storage</h4><p>Telegram data cache</p><span class="badge live" id="svcKV">● Ready</span></div></div>
@@ -1734,6 +1794,103 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--card2);border-radius:6px}
 ::-webkit-scrollbar-thumb:hover{background:var(--border2)}
+
+/* Video Big Notice */
+.video-big-notice{background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin:8px 0}
+.vbn-player{width:100%;aspect-ratio:16/9;background:#000;border-radius:12px 12px 0 0;overflow:hidden}
+.vbn-player iframe{width:100%;height:100%;border:none}
+.vbn-info{padding:16px}
+.vbn-info h4{font-size:15px;font-weight:700;margin-bottom:8px;color:var(--text)}
+.vbn-size{font-size:12px;color:var(--accent);font-weight:700;margin-bottom:4px}
+.vbn-note{font-size:11px;color:var(--text2);margin-bottom:12px}
+.vbn-actions{display:flex;gap:10px;flex-wrap:wrap}
+.vbn-btn{padding:10px 18px;border-radius:12px;font-size:13px;font-weight:700;text-decoration:none;transition:.2s;display:inline-flex;align-items:center;gap:6px}
+.vbn-btn.primary{background:var(--grad);color:#fff;border:none}
+.vbn-btn.primary:hover{box-shadow:0 4px 16px rgba(34,211,238,.4);transform:translateY(-1px)}
+.vbn-btn:not(.primary){background:var(--card2);color:var(--text);border:1px solid var(--border)}
+.vbn-btn:not(.primary):hover{border-color:var(--accent)}
+/* Doc Big Notice */
+.doc-big-notice{display:flex;align-items:center;gap:14px;padding:16px;background:var(--card);border:1px solid var(--border);border-radius:14px;margin:8px 0}
+.doc-big-icon{font-size:40px;flex-shrink:0}
+.doc-big-info{flex:1;min-width:0}
+.doc-big-info h4{font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc-big-info p{font-size:11px;color:var(--text2)}
+.doc-big-actions{display:flex;gap:8px;flex-shrink:0}
+/* Responsive fixes for video */
+@media(max-width:820px){
+  .vbn-player iframe{height:220px}
+  .vbn-actions{flex-direction:column}
+  .vbn-btn{width:100%;justify-content:center}
+  .doc-big-notice{flex-direction:column;text-align:center}
+  .doc-big-actions{width:100%}
+  .doc-big-actions .book-link{width:100%;text-align:center}
+/* Stream Hero */
+.stream-hero{position:relative;border-radius:24px;overflow:hidden;margin-bottom:32px;min-height:320px;display:flex;align-items:flex-end;padding:40px;border:1px solid var(--border)}
+.sh-bg{position:absolute;inset:0;background-size:cover;background-position:center;filter:blur(30px) brightness(0.3);transform:scale(1.1);transition:background-image .5s}
+.sh-gradient{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,12,20,.3) 0%,rgba(10,12,20,.92) 100%)}
+.sh-content{position:relative;z-index:2;width:100%}
+.sh-badge{display:inline-flex;align-items:center;gap:8px;padding:6px 16px;border-radius:20px;background:rgba(220,38,38,.2);border:1px solid rgba(220,38,38,.3);color:#ef4444;font-size:11px;font-weight:800;letter-spacing:1px;margin-bottom:16px;text-transform:uppercase}
+.pulse-dot{width:8px;height:8px;border-radius:50%;background:#ef4444;animation:pulse 1.5s ease-in-out infinite}
+.sh-title{font-size:clamp(36px,6vw,60px);font-weight:900;line-height:1;margin-bottom:12px;color:var(--text)}
+.sh-title span{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.sh-sub{font-size:15px;color:var(--text2);margin-bottom:24px;max-width:500px}
+.sh-actions{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:28px}
+.sh-btn{padding:14px 28px;border-radius:14px;font-size:14px;font-weight:800;cursor:pointer;border:1px solid var(--border);background:var(--card);color:var(--text);transition:.2s;backdrop-filter:blur(10px)}
+.sh-btn:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--glow)}
+.sh-btn.primary{background:var(--grad);border-color:transparent;color:#fff}
+.sh-btn.primary:hover{box-shadow:0 6px 28px rgba(34,211,238,.45)}
+.sh-stats{display:flex;gap:28px;flex-wrap:wrap}
+.sh-stat{display:flex;flex-direction:column}
+.sh-stat-val{font-size:28px;font-weight:900;background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.sh-stat-label{font-size:11px;color:var(--text2);letter-spacing:.3px}
+/* Home Sections */
+.home-section{margin-bottom:32px}
+.hs-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.hs-head .section-title{margin-bottom:0}
+.hs-all{padding:8px 16px;border:1px solid var(--border);border-radius:10px;background:transparent;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;transition:.2s}
+.hs-all:hover{background:var(--card);transform:translateX(2px)}
+/* Channel Row */
+.ch-row{display:flex;gap:14px;overflow-x:auto;padding-bottom:10px;-webkit-overflow-scrolling:touch;scroll-snap-type:x mandatory}
+.ch-row::-webkit-scrollbar{height:5px}
+.ch-row-card{flex-shrink:0;width:180px;border-radius:16px;background:var(--card);border:1px solid var(--border);overflow:hidden;cursor:pointer;transition:.2s;scroll-snap-align:start;position:relative}
+.ch-row-card:hover{border-color:var(--accent);transform:translateY(-4px);box-shadow:var(--glow)}
+.ch-row-logo{height:100px;display:flex;align-items:center;justify-content:center;background:var(--card2);overflow:hidden}
+.ch-row-logo img{width:100%;height:100%;object-fit:contain;background:var(--card2)}
+.ch-row-info{padding:12px}
+.ch-row-name{font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px}
+.ch-row-meta{font-size:11px;color:#34d399;font-weight:700}
+/* TG Preview */
+.tg-preview{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.tg-preview-card{display:flex;gap:12px;padding:14px;border-radius:14px;background:var(--card);border:1px solid var(--border);cursor:pointer;transition:.2s}
+.tg-preview-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.tgp-icon{font-size:28px;flex-shrink:0;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:var(--card2);border-radius:10px}
+.tgp-info{flex:1;min-width:0}
+.tgp-text{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tgp-meta{font-size:11px;color:var(--text2);margin-top:4px}
+/* Explore Grid */
+.explore-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.explore-card{display:flex;align-items:center;gap:14px;padding:18px;border-radius:16px;background:var(--card);border:1px solid var(--border);cursor:pointer;transition:.25s;text-align:left;color:var(--text);width:100%}
+.explore-card:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:var(--glow)}
+.ec-emoji{font-size:32px;flex-shrink:0;width:50px;height:50px;display:flex;align-items:center;justify-content:center;background:var(--card2);border-radius:14px}
+.explore-card div{flex:1;min-width:0}
+.explore-card h3{font-size:14px;font-weight:800;margin-bottom:2px}
+.explore-card p{font-size:11px;color:var(--text2)}
+.ec-arrow{font-size:18px;color:var(--text2);transition:.2s;flex-shrink:0}
+.explore-card:hover .ec-arrow{color:var(--accent);transform:translateX(3px)}
+/* Responsive stream hero */
+@media(max-width:820px){
+  .stream-hero{min-height:260px;padding:24px 18px}
+  .sh-title{font-size:32px}
+  .sh-stats{gap:16px}
+  .sh-stat-val{font-size:22px}
+  .ch-row-card{width:150px}
+  .ch-row-logo{height:80px}
+  .tg-preview{grid-template-columns:1fr}
+  .explore-grid{grid-template-columns:1fr}
+}
+
+}
+
 .mobile-toggle{display:none;position:fixed;top:13px;left:13px;z-index:100;padding:9px 14px;background:var(--card);backdrop-filter:blur(14px);border:1px solid var(--border);border-radius:11px;color:var(--text);font-size:18px;cursor:pointer}
 .mobile-toggle:hover{border-color:var(--accent)}
 @media(max-width:820px){
@@ -1816,6 +1973,12 @@ function initApp(){
   go('home');
   loadAgentStrip();
   attachFormHandlers();
+  // Dynamic refresh: reload data when page becomes visible
+  document.addEventListener('visibilitychange', function(){
+    if (!document.hidden && state.page){
+      go(state.page);
+    }
+  });
 }
 
 // Use multiple methods to ensure init runs
@@ -1952,6 +2115,7 @@ function switchAuthTab(tab){
 
 /* ---------- HOME ---------- */
 async function loadHome(){
+  // Status
   try{
     var r = await fetch(API+'/api/status');
     var d = await r.json();
@@ -1962,16 +2126,79 @@ async function loadHome(){
       if($('svcAI')) $('svcAI').textContent = '● '+d.services.ai;
     }
   }catch(e){}
+  // TV channels + hero stats
   try{
     var r2 = await fetch(API+'/api/live-tv');
     var d2 = await r2.json();
-    if($('stTV')) $('stTV').textContent = (d2.working||0)+' / '+(d2.total||0);
-  }catch(e){ if($('stTV')) $('stTV').textContent='0'; }
+    if($('stTV')) $('stTV').textContent = (d2.working||0)+'';
+    if($('stMovies')) $('stMovies').textContent = (d2.total||0)+'';
+    var channels = d2.channels || [];
+    // Pick top working channels across categories for the "Trending" row
+    var telly = channels.filter(function(c){ return c.working && c.hindi; }).slice(0,6);
+    if (telly.length < 6){
+      channels.filter(function(c){ return c.working && !c.hindi; }).slice(0, 6 - telly.length).forEach(function(c){ telly.push(c); });
+    }
+    if (telly.length < 6 && channels.length){
+      channels.slice(0, 6 - telly.length).forEach(function(c){ telly.push(c); });
+    }
+    var chEl = $('homeChannels');
+    if (chEl){
+      if (!telly.length){
+        chEl.innerHTML = '<div class="empty small">Channels load honge…</div>';
+      } else {
+        var ch = '';
+        telly.forEach(function(c, i){
+          var gradColors = ['linear-gradient(135deg,#22d3ee,#a78bfa)','linear-gradient(135deg,#34d399,#22d3ee)','linear-gradient(135deg,#fbbf24,#f472b6)','linear-gradient(135deg,#a78bfa,#f471b5)','linear-gradient(135deg,#38bdf8,#34d399)','linear-gradient(135deg,#f87171,#fbbf24)'];
+          var logo = c.logo ? '<img src="'+esc(c.logo)+'" alt="" loading="lazy">' : '<span style="font-size:32px">'+String.fromCodePoint(0x1F4FA)+'</span>';
+          ch += '<div class="ch-row-card" data-nav="tv" style="--card-grad:'+gradColors[i % gradColors.length]+'">';
+          ch += '<div class="ch-row-logo">'+logo+'</div>';
+          ch += '<div class="ch-row-info"><div class="ch-row-name">'+esc(c.name)+'</div>';
+          ch += '<div class="ch-row-meta">'+String.fromCodePoint(0x1F534)+' Live</div></div></div>';
+        });
+        chEl.innerHTML = ch;
+        // HLS support degrade: set hero bg to first channel logo
+        if (telly[0] && telly[0].logo){
+          var shBg = $('shBg');
+          if (shBg) shBg.style.backgroundImage = 'url('+esc(telly[0].logo)+')';
+        }
+      }
+    }
+  }catch(e){ if($('stTV')) $('stTV').textContent='—'; }
+  // TG stats + latest preview
   try{
     var r3 = await fetch(API+'/api/telegram/stats');
     var d3 = await r3.json();
     if($('stTG')) $('stTG').textContent = d3.total || '0';
-  }catch(e){ if($('stTG')) $('stTG').textContent='0'; }
+  }catch(e){ if($('stTG')) $('stTG').textContent='—'; }
+  try{
+    var r4 = await fetch(API+'/api/telegram/messages');
+    var d4 = await r4.json();
+    var tgMsgs = d4.messages || [];
+    var tgEl = $('homeTG');
+    if (tgEl){
+      if (!tgMsgs.length){
+        tgEl.innerHTML = '<div class="empty small">No messages yet</div>';
+      } else {
+        var preview = tgMsgs.slice(0, 4);
+        var tg = '';
+        preview.forEach(function(m){
+          var hasVid = m.video ? ' 🎥' : '';
+          var hasDoc = m.document ? ' 📄' : '';
+          var hasPhoto = m.photo ? ' 📷' : '';
+          var txt = (m.text || '').replace(/\n/g, ' ').substring(0, 100);
+          if (!txt) txt = (m.video ? 'Video file' : '') + (m.document ? 'Document: '+(m.document.name||'file') : '') + (m.photo ? 'Photo' : '');
+          tg += '<div class="tg-preview-card" data-nav="tg">';
+          tg += '<div class="tgp-icon">'+(m.video?String.fromCodePoint(0x1F3AC):m.photo?String.fromCodePoint(0x1F5BC,0xFE0F):m.document?String.fromCodePoint(0x1F4C4):String.fromCodePoint(0x1F4AC))+'</div>';
+          tg += '<div class="tgp-info"><div class="tgp-text">'+esc(txt)+'</div><div class="tgp-meta">@'+esc(m.from||'unknown')+' • '+new Date((m.date||0)*1000).toLocaleString('hi-IN',{day:'2-digit',month:'short'})+(hasVid+hasDoc+hasPhoto)+'</div></div>';
+          tg += '</div>';
+        });
+        tgEl.innerHTML = tg;
+      }
+    }
+  }catch(e){
+    var tgEl2 = $('homeTG');
+    if (tgEl2) tgEl2.innerHTML = '<div class="empty small">Telegram load nahi hua</div>';
+  }
 }
 
 /* ---------- LIVE TV ---------- */
@@ -2125,21 +2352,25 @@ function renderTGMessages(msgs){
     if (m.video){
       var vsize = m.video.size || 0;
       var MB = Math.round(vsize / (1024*1024));
+      var GB = (vsize / (1024*1024*1024)).toFixed(1);
       var TG_LIMIT = 20 * 1024 * 1024;
+      var chatId = '-1002514429549';
+      var tmeUrl = 'https://t.me/c/' + chatId.replace('-100','') + '/' + m.id;
+      var tgWebUrl = 'https://web.telegram.org/k/#-100' + chatId.replace('-100','') + '_' + m.id;
+      var sizeLabel = vsize > 1024*1024*1024 ? GB+' GB' : MB+' MB';
       if (vsize > TG_LIMIT){
-        // Large file — show Telegram deep link + info
-        var chatId = '-1002514429549';
-        var tmeUrl = 'https://t.me/c/' + chatId.replace('-100','') + '/' + m.id;
         h += '<div class="tg-msg-media">';
         h += '<div class="video-big-notice">';
-        h += '<div class="vbn-icon">'+String.fromCodePoint(0x1F4FA)+'</div>';
+        h += '<div class="vbn-player">';
+        h += '<iframe src="'+esc(tgWebUrl)+'" width="100%" height="400" frameborder="0" allowfullscreen style="border-radius:12px;background:#000"></iframe>';
+        h += '</div>';
         h += '<div class="vbn-info">';
-        h += '<h4>'+esc(m.video.name || m.text.substring(0,60) || 'Video')+'</h4>';
-        h += '<p class="vbn-size">'+String.fromCodePoint(0x1F4BE)+' '+MB+' MB'+String.fromCodePoint(0x1F504)+' '+(m.video.mime || 'video')+'</p>';
-        h += '<p class="vbn-note">'+String.fromCodePoint(0x2139,0xFE0F)+' Telegram Bot API 20MB limit — Large files stream via Telegram app</p>';
+        h += '<h4>'+String.fromCodePoint(0x1F3AC)+' '+esc(m.video.name || (m.text||'').substring(0,60) || 'Video')+'</h4>';
+        h += '<p class="vbn-size">'+String.fromCodePoint(0x1F4BE)+' '+sizeLabel+' • '+(m.video.mime || 'video/mp4')+'</p>';
+        h += '<p class="vbn-note">'+String.fromCodePoint(0x26A1)+' Telegram Cloud — '+String.fromCodePoint(0x1F4FA)+' HD Quality ('+(m.video.quality||'Best')+')</p>';
         h += '<div class="vbn-actions">';
-        h += '<a href="'+esc(tmeUrl)+'" target="_blank" class="vbn-btn primary">'+String.fromCodePoint(0x25B6,0xFE0F)+' Watch in Telegram</a>';
-        h += '<a href="'+esc(tmeUrl)+'" target="_blank" class="vbn-btn">'+String.fromCodePoint(0x1F4E5)+' Open in Telegram</a>';
+        h += '<a href="'+esc(tgWebUrl)+'" target="_blank" class="vbn-btn primary">'+String.fromCodePoint(0x25B6,0xFE0F)+' Open in Telegram Web</a>';
+        h += '<a href="'+esc(tmeUrl)+'" target="_blank" class="vbn-btn">'+String.fromCodePoint(0x1F4F1)+' Open in App</a>';
         h += '</div>';
         h += '</div>';
         h += '</div>';
@@ -2152,15 +2383,29 @@ function renderTGMessages(msgs){
     if (m.document){
       var dsize = m.document.size || 0;
       var dMB = Math.round(dsize / (1024*1024));
+      var dGB = (dsize / (1024*1024*1024)).toFixed(1);
+      var dSizeLabel = dsize > 1024*1024*1024 ? dGB+' GB' : dMB+' MB';
+      var docName = m.document.name || 'file';
+      var isPdf = docName.toLowerCase().endsWith('.pdf');
+      var isEpub = docName.toLowerCase().endsWith('.epub');
+      var docIcon = isPdf ? String.fromCodePoint(0x1F4D5) : isEpub ? String.fromCodePoint(0x1F4D6) : String.fromCodePoint(0x1F4C4);
       if (dsize > 20 * 1024 * 1024){
         var chatId2 = '-1002514429549';
         var tmeUrl2 = 'https://t.me/c/' + chatId2.replace('-100','') + '/' + m.id;
-        h += '<div class="tg-msg-actions">';
-        h += '<a href="'+esc(tmeUrl2)+'" target="_blank" class="book-link">📥 Download ('+dMB+' MB) via Telegram</a>';
+        var tgWebUrl2 = 'https://web.telegram.org/k/#-100' + chatId2.replace('-100','') + '_' + m.id;
+        h += '<div class="doc-big-notice">';
+        h += '<div class="doc-big-icon">'+docIcon+'</div>';
+        h += '<div class="doc-big-info">';
+        h += '<h4>'+esc(docName)+'</h4>';
+        h += '<p>'+dSizeLabel+'</p>';
         h += '</div>';
+        h += '<div class="doc-big-actions">';
+        h += '<a href="'+esc(tgWebUrl2)+'" target="_blank" class="book-link">📥 Open in Telegram</a>';
+        h += '<a href="'+esc(tmeUrl2)+'" target="_blank" class="book-link">📱 Open in App</a>';
+        h += '</div></div>';
       } else {
         var durl = m.document.url || API+'/api/telegram/file?msg_id='+m.id;
-        h += '<div class="tg-msg-actions"><a href="'+esc(durl)+'" target="_blank" class="book-link">📥 Download '+esc(m.document.name||'file')+'</a></div>';
+        h += '<div class="tg-msg-actions"><a href="'+esc(durl)+'" target="_blank" class="book-link">'+docIcon+' Download '+esc(docName)+' ('+dSizeLabel+')</a></div>';
       }
     }
     if (m.audio){
@@ -2282,6 +2527,7 @@ async function sendChat(){
 
 /* ---------- FAMILY ROOM ---------- */
 async function loadFamilyRoom(){
+  // Show members immediately
   try{
     var mr = await fetch(API+'/api/agents');
     var md = await mr.json();
@@ -2292,11 +2538,35 @@ async function loadFamilyRoom(){
       mEl.innerHTML = mh;
     }
   }catch(e){}
+  // Show loading indicator first
+  var feed = $('familyFeed');
+  feed.innerHTML = '<div class="family-loading"><div class="spinner"></div><p>Family messages load ho rahe hain...</p></div>';
+  // Fetch messages with timeout
   try{
-    var r = await fetch(API+'/api/family-chat');
+    var ctrl = new AbortController();
+    var tid = setTimeout(function(){ ctrl.abort(); }, 10000);
+    var r = await fetch(API+'/api/family-chat', {signal: ctrl.signal});
+    clearTimeout(tid);
     var d = await r.json();
-    renderFamilyFeed(d.session || {messages:[], updated:0});
-  }catch(e){ $('familyFeed').innerHTML='<div class="family-empty"><div class="family-empty-icon">⚠️</div><h3>Load nahi hua</h3></div>'; }
+    if (d.ok && d.session){
+      renderFamilyFeed(d.session);
+      // Also update topic
+      var topicEl = $('familyTopic');
+      if (topicEl && d.session.messages && d.session.messages.length){
+        var lastTopic = '';
+        for (var i = d.session.messages.length - 1; i >= 0; i--){
+          if (d.session.messages[i].text && d.session.messages[i].text.indexOf(String.fromCodePoint(0x1F305)) === 0){
+            lastTopic = d.session.messages[i].text; break;
+          }
+        }
+        if (lastTopic) topicEl.textContent = lastTopic.substring(0, 80);
+      }
+    } else {
+      feed.innerHTML = '<div class="family-empty"><div class="family-empty-icon">👨‍👩‍👧‍👦</div><h3>Family Room</h3><p>Start Discussion dabao!</p></div>';
+    }
+  }catch(e){
+    feed.innerHTML = '<div class="family-empty"><div class="family-empty-icon">👨‍👩‍👧‍👦</div><h3>Family Room</h3><p>Start Discussion dabao! ya Refresh karo</p></div>';
+  }
 }
 
 function renderFamilyFeed(session){
@@ -2323,13 +2593,44 @@ function renderFamilyFeed(session){
 async function startFamilyDiscussion(){
   var btn = $('familyStart');
   if (btn){ btn.classList.add('loading'); btn.textContent = '⏳ Discussion chal rahi hai...'; }
-  $('familyFeed').innerHTML = '<div class="family-loading"><div class="spinner"></div><p>Agents baat kar rahe hain... ☕</p></div>';
+  // First load existing messages immediately (optimistic render)
   try{
-    var r = await fetch(API+'/api/family-chat/start', {method:'POST'});
+    var existR = await fetch(API+'/api/family-chat');
+    var existD = await existR.json();
+    if (existD.ok && existD.session && existD.session.messages && existD.session.messages.length > 0){
+      renderFamilyFeed(existD.session);
+    }
+  }catch(e){}
+  // Show typing indicator
+  var feed = $('familyFeed');
+  var existing = feed ? feed.innerHTML : '';
+  feed.innerHTML = '<div class="family-loading"><div class="spinner"></div><p>🧠 NJ 👨‍👩‍👧‍👦 Family agents discuss kar rahe hain...</p><p style="font-size:11px;color:var(--text2);margin-top:6px">Yeh 10-20 second le sakta hai</p></div>' + existing;
+  try{
+    var controller = new AbortController();
+    var tid = setTimeout(function(){ controller.abort(); }, 25000);
+    var r = await fetch(API+'/api/family-chat/start', {method:'POST', signal: controller.signal});
+    clearTimeout(tid);
     var d = await r.json();
     if (d.ok && d.session) renderFamilyFeed(d.session);
-    else $('familyFeed').innerHTML='<div class="family-empty"><div class="family-empty-icon">⚠️</div><h3>Start nahi hua</h3><p>'+(d.error||'Try again')+'</p></div>';
-  }catch(e){ $('familyFeed').innerHTML='<div class="family-empty"><div class="family-empty-icon">❌</div><h3>Error</h3></div>'; }
+    else {
+      // Fallback: load existing messages
+      var fb = await fetch(API+'/api/family-chat');
+      var fbD = await fb.json();
+      if (fbD.ok && fbD.session) renderFamilyFeed(fbD.session);
+      else $('familyFeed').innerHTML='<div class="family-empty"><div class="family-empty-icon">⚠️</div><h3>Start nahi hua</h3><p>'+(d.error||'Try again')+'</p></div>';
+    }
+  }catch(e){
+    // Always fallback to GET existing messages
+    try{
+      var fb2 = await fetch(API+'/api/family-chat');
+      var fbD2 = await fb2.json();
+      if (fbD2.ok && fbD2.session && fbD2.session.messages && fbD2.session.messages.length > 0){
+        renderFamilyFeed(fbD2.session);
+      } else {
+        $('familyFeed').innerHTML='<div class="family-empty"><div class="family-empty-icon">⏳</div><h3>Agents busy hain</h3><p>Pehle ka data load ho gaya. Dubara try karo!</p></div>';
+      }
+    }catch(e2){ $('familyFeed').innerHTML='<div class="family-empty"><div class="family-empty-icon">❌</div><h3>Connection error</h3><p>Internet check karo</p></div>'; }
+  }
   if (btn){ btn.classList.remove('loading'); btn.textContent = '🔄 Start Discussion'; }
 }
 
