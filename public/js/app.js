@@ -1,176 +1,311 @@
 (function(){
 'use strict';
-const BOT_TOKEN='1389903628:AAFapVJGN4EUoGul9gvWrSkT_qM71rwZ_2k';
-const CHAT_ID='-1002514429549';
-const WORKER_URL='';
-let tgData=[];
-let startTime=Date.now();
+
+// ============================================================
+// JDUB Hub — Enhanced Frontend
+// All free services connected
+// ============================================================
+const API = window.location.hostname.includes('workers.dev')
+  ? '' // same origin
+  : 'https://jdub-deploy.njcreative123.workers.dev'; // Cloudflare Worker URL
+
+let tgData = [];
+let startTime = Date.now();
 
 // Loader
-window.addEventListener('load',function(){
-setTimeout(function(){
-document.getElementById('loader').classList.add('hid');
-document.getElementById('app').classList.add('vis');
-startUptime();
-},2500);
+window.addEventListener('load', function(){
+  setTimeout(function(){
+    document.getElementById('loader').classList.add('hid');
+    document.getElementById('app').classList.add('vis');
+    startUptime();
+    loadTrending();
+  }, 2500);
 });
 
 // Navigation
-window.go=function(p){
-document.querySelectorAll('.pg').forEach(function(e){e.classList.remove('on')});
-document.querySelectorAll('.nb').forEach(function(e){e.classList.remove('on')});
-var pg=document.getElementById('p-'+p);
-if(pg)pg.classList.add('on');
-var btn=document.querySelector('[data-p="'+p+'"]');
-if(btn)btn.classList.add('on');
+window.go = function(p) {
+  document.querySelectorAll('.pg').forEach(function(e){ e.classList.remove('on') });
+  document.querySelectorAll('.nb').forEach(function(e){ e.classList.remove('on') });
+  var pg = document.getElementById('p-' + p);
+  if (pg) pg.classList.add('on');
+  var btn = document.querySelector('[data-p="' + p + '"]');
+  if (btn) btn.classList.add('on');
+  // Load data per page
+  if (p === 'search') initSearch();
+  if (p === 'catalog') loadCatalog();
 };
 
-// Uptime
-function startUptime(){
-setInterval(function(){
-var d=Date.now()-startTime;
-var m=Math.floor(d/60000);
-var h=Math.floor(m/60);
-if(h>0)document.getElementById('sUp').textContent=h+'h'+(m%60)+'m';
-else document.getElementById('sUp').textContent=m+'m';
-},10000);
+// Uptime counter
+function startUptime() {
+  setInterval(function() {
+    var d = Date.now() - startTime;
+    var m = Math.floor(d / 60000);
+    var h = Math.floor(m / 60);
+    if (h > 0) document.getElementById('sUp').textContent = h + 'h' + (m % 60) + 'm';
+    else document.getElementById('sUp').textContent = m + 'm';
+  }, 10000);
 }
 
-// AI Chat
-function aiRoute(msg){
-var l=msg.toLowerCase();
-if(l.match(/search|dhundh|find|khoj|movie|film|download/)){
-return{worker:'search',icon:'🔍',response:'Search Worker activated! 🔍\n\nMain Telegram group data me search kar raha hoon...\n\nAgar tumne Telegram data upload kiya hai toh wahan se results milenge. Nahi kiya toh pehle Telegram page par jaake JSON upload karo.'};
-}
-if(l.match(/analyz|samjh|samajh|data|trend/)){
-return{worker:'analyze',icon:'📊',response:'Analyze Worker activated! 📊\n\nData analysis mode ON.\n\nMain patterns dhundh raha hoon messages me. Content type, frequency, aur trends ka analysis karunga.'};
-}
-if(l.match(/summary|tl;dr|short|chhota|recap/)){
-return{worker:'📝',icon:'Summary',response:'Summarize Worker activated! 📝\n\nShort me samjhata hoon!\n\nTelegram group me movies aur books ka collection hai. Upload karo JSON data aur main beautifully summarize karunga.'};
-}
-if(l.match(/live\s*tv|tv|stream|channel/)){
-return{worker:'tv',icon:'📺',response:'Live TV Worker activated! 📺\n\nStream pages ready hain. Categories available:\n• Hindi Movies 🎬\n• Hindi Dubbed 🎥\n• Web Series 📺\n• Music TV 🎵\n• News 📰\n• Sports ⚽\n\nAbhi sirf UI ready hai, live streams add honge soon!'};
-}
-if(l.match(/telegram|tg|group|message|chat/)){
-return{worker:'tg',icon:'📱',response:'Telegram Worker activated! 📱\n\nGroup: @hindidubbedfilmmovie\nMembers: Active\n\nData browse karne ke liye Telegram page par jao aur JSON file upload karo. Uske baad movies aur books search kar sakte ho!'};
-}
-if(l.match(/status|kya haal|how|kaisa/)){
-return{worker:'status',icon:'⚙️',response:'Status Report ⚙️\n\n✅ Main AI: Online\n✅ Search Worker: Online\n✅ Analyze Worker: Online\n✅ Summarize Worker: Online\n✅ Live TV Worker: Online\n✅ Telegram Worker: Online\n\nAll 6 workers operational! 🔥'};
-}
-if(l.match(/nam|kaun|who|name|tumhara/)){
-return{worker:'main',icon:'⚡',response:'Hey! Main JDUB AI hoon! ⚡\n\nMujhe 6 Worker AIs milke kaam karte hain:\n🔍 Search — Content dhundhta hai\n📊 Analyze — Data samajhta hai\n📝 Summarize — Short me batata hai\n📺 Live TV — Streams handle karta hai\n📱 Telegram — Group data manage karta hai\n\nKuch bhi pooch sakte ho!'};
-}
-return{worker:'main',icon:'⚡',response:'Got it! 🤔\n\nMain abhi samajh raha hoon...\n\nTum yeh try kar sakte ho:\n🔍 "Search karo movie name"\n📊 "Analyze karo data"\n📝 "Summary banao"\n📺 "Live TV dikhao"\n📱 "Telegram data"\n⚙️ "Status batao"'};
+// ============================================================
+// SEARCH — combined search (movies + books + catalog)
+// ============================================================
+function initSearch() {
+  var q = document.getElementById('searchInput');
+  if (q) q.focus();
 }
 
-function addMsg(container,text,isUser,workerName,workerIcon){
-var d=document.createElement('div');
-d.className='cm '+(isUser?'user':'ai');
-var label=isUser?'👤 YOU':workerIcon+' '+workerName+' AI';
-d.innerHTML='<span class="cb">'+label+'</span><p>'+text.replace(/\n/g,'<br>')+'</p>';
-container.appendChild(d);
-container.scrollTop=container.scrollHeight;
-}
+window.searchContent = async function() {
+  var q = document.getElementById('searchInput').value.trim();
+  if (!q) return;
+  var resultsDiv = document.getElementById('searchResults');
+  resultsDiv.innerHTML = '<div class="loading">🔍 Searching movies, books & catalog...</div>';
 
-window.chat=function(msg){
-if(!msg||!msg.trim())return;
-var input=document.getElementById('cIn');
-if(input)input.value='';
-var container=document.getElementById('cMsgs');
-addMsg(container,msg,true);
-var result=aiRoute(msg);
-setTimeout(function(){
-addMsg(container,result.response,false,result.worker.toUpperCase(),result.icon);
-var total=parseInt(document.getElementById('sMsg').textContent||'0')+1;
-document.getElementById('sMsg').textContent=total;
-},500);
+  try {
+    var resp = await fetch(API + '/api/search?q=' + encodeURIComponent(q));
+    var data = await resp.json();
+    
+    if (data.results && data.results.length > 0) {
+      var html = '<div class="sr-count">' + data.results.length + ' results for "' + q + '"</div>';
+      data.results.forEach(function(r) {
+        html += '<div class="sr-card">';
+        if (r.image) html += '<img src="' + r.image + '" class="sr-img" alt="' + (r.title || '') + '">';
+        html += '<div class="sr-info">';
+        html += '<h3>' + (r.title || 'Untitled') + '</h3>';
+        html += '<div class="sr-meta">';
+        html += '<span class="badge-t ' + r.source + '">' + getSourceLabel(r.source) + '</span>';
+        if (r.type) html += '<span class="badge-t ' + r.type + '">' + r.type + '</span>';
+        if (r.year) html += '<span>' + r.year + '</span>';
+        if (r.rating) html += '<span>⭐ ' + r.rating + '</span>';
+        html += '</div>';
+        if (r.author) html += '<p>by ' + r.author + '</p>';
+        if (r.overview) html += '<p class="sr-overview">' + r.overview.substring(0, 150) + '...</p>';
+        if (r.read_url) html += '<a href="' + r.read_url + '" target="_blank" class="sr-link">📖 Read on Open Library</a>';
+        html += '</div></div>';
+      });
+      resultsDiv.innerHTML = html;
+    } else {
+      resultsDiv.innerHTML = '<div class="sr-empty">No results found for "' + q + '". Try different keywords.</div>';
+    }
+  } catch(e) {
+    resultsDiv.innerHTML = '<div class="sr-error">⚠️ Worker offline. Using local mode.</div>';
+    searchLocal(q, resultsDiv);
+  }
 };
 
-window.qSend=function(){
-var input=document.getElementById('qIn');
-var msg=input.value.trim();
-if(!msg)return;
-input.value='';
-var container=document.getElementById('qChat');
-addMsg(container,msg,true);
-var result=aiRoute(msg);
-setTimeout(function(){
-addMsg(container,result.response,false,result.worker.toUpperCase(),result.icon);
-},400);
-};
-
-// Telegram
-window.tgSearch=function(){
-var q=document.getElementById('tgQ').value.toLowerCase();
-if(!tgData.length)return;
-var filtered=tgData.filter(function(m){
-return(m.text||'').toLowerCase().includes(q)||(m.file_name||'').toLowerCase().includes(q);
-});
-renderTg(filtered);
-};
-
-window.tgF=function(type,btn){
-document.querySelectorAll('.tg-bar .tb').forEach(function(b){b.classList.remove('on')});
-btn.classList.add('on');
-if(!tgData.length)return;
-if(type==='all')renderTg(tgData);
-else if(type==='photo')renderTg(tgData.filter(function(m){return m.photo}));
-else if(type==='video')renderTg(tgData.filter(function(m){return m.video}));
-else if(type==='doc')renderTg(tgData.filter(function(m){return m.document}));
-};
-
-window.tgUp=function(files){
-if(!files.length)return;
-var file=files[0];
-var reader=new FileReader();
-reader.onload=function(e){
-try{
-tgData=JSON.parse(e.target.result);
-if(!Array.isArray(tgData))tgData=tgData.messages||[];
-document.getElementById('sMed').textContent=tgData.length;
-renderTg(tgData);
-}catch(err){
-alert('JSON parse error: '+err.message);
-}
-};
-reader.readAsText(file);
-};
-
-function renderTg(msgs){
-var c=document.getElementById('tgC');
-if(!msgs||!msgs.length){
-c.innerHTML='<div class="empty"><h2>🔍</h2><h3>Koi results nahi</h3><p>Try different search</p></div>';
-return;
-}
-var html='<div class="tg-list">';
-msgs.slice(0,50).forEach(function(m){
-var icon='💬';
-var type='text';
-if(m.photo){icon='🖼️';type='photo';}
-else if(m.video){icon='🎬';type='video';}
-else if(m.document){icon='📄';type='document';}
-var text=m.text||m.message||'[No text]';
-if(text.length>150)text=text.substring(0,150)+'...';
-var meta='';
-if(m.date)meta=m.date;
-if(m.file_name)meta+=' | '+m.file_name;
-html+='<div class="tg-item"><div class="tg-ico">'+icon+'</div><div class="tg-info"><h4>'+type.toUpperCase()+'</h4><p>'+text+'</p><div class="tg-meta">'+meta+'</div></div></div>';
-});
-html+='</div>';
-c.innerHTML=html;
+function getSourceLabel(s) {
+  var map = { tmdb: '🎬 Movie', openlibrary: '📚 Book', catalog: '📁 Catalog' };
+  return map[s] || s;
 }
 
-// Drag and drop for Telegram upload
-document.addEventListener('DOMContentLoaded',function(){
-var up=document.querySelector('.up');
-if(up){
-up.addEventListener('dragover',function(e){e.preventDefault();up.style.borderColor='var(--accent)';});
-up.addEventListener('dragleave',function(){up.style.borderColor='';});
-up.addEventListener('drop',function(e){
-e.preventDefault();
-up.style.borderColor='';
-if(e.dataTransfer.files.length)tgUp(e.dataTransfer.files);
-});
+function searchLocal(q, div) {
+  div.innerHTML += '<div class="sr-empty">Worker se connect nahi ho paya. Try again later.</div>';
 }
-});
+
+// ============================================================
+// MOVIES — load from TMDB via Worker
+// ============================================================
+window.loadMovies = async function(type) {
+  type = type || 'popular';
+  var container = document.getElementById('moviesGrid');
+  if (container) container.innerHTML = '<div class="loading">🎬 Loading movies...</div>';
+  
+  try {
+    var resp = await fetch(API + '/api/movies?type=' + type);
+    var data = await resp.json();
+    if (data.results && container) {
+      var html = '';
+      data.results.forEach(function(m) {
+        html += '<div class="movie-card">';
+        if (m.image) html += '<img src="' + m.image + '" class="movie-poster" alt="' + m.title + '">';
+        html += '<div class="movie-info">';
+        html += '<h4>' + m.title + '</h4>';
+        html += '<div class="movie-meta">';
+        if (m.rating) html += '<span>⭐ ' + m.rating + '</span>';
+        if (m.year) html += '<span>' + m.year + '</span>';
+        html += '</div></div></div>';
+      });
+      container.innerHTML = html;
+    }
+  } catch(e) {
+    if (container) container.innerHTML = '<div class="sr-error">Movies load nahi ho payi.</div>';
+  }
+};
+
+// ============================================================
+// BOOKS — Open Library via Worker
+// ============================================================
+window.loadBooks = async function(q) {
+  q = q || 'famous';
+  var container = document.getElementById('booksGrid');
+  if (container) container.innerHTML = '<div class="loading">📚 Loading books...</div>';
+  
+  try {
+    var resp = await fetch(API + '/api/books?q=' + encodeURIComponent(q));
+    var data = await resp.json();
+    if (data.results && container) {
+      var html = '';
+      data.results.forEach(function(b) {
+        html += '<div class="book-card">';
+        if (b.cover) html += '<img src="' + b.cover + '" class="book-cover" alt="' + b.title + '">';
+        html += '<div class="book-info">';
+        html += '<h4>' + b.title + '</h4>';
+        html += '<p>' + (b.author || '') + ' ' + (b.year ? '(' + b.year + ')' : '') + '</p>';
+        if (b.read_url) html += '<a href="' + b.read_url + '" target="_blank" class="sr-link">📖 Read Free</a>';
+        html += '</div></div>';
+      });
+      container.innerHTML = html;
+    }
+  } catch(e) {
+    if (container) container.innerHTML = '<div class="sr-error">Books load nahi ho payi.</div>';
+  }
+};
+
+// ============================================================
+// TRENDING — load combined trending
+// ============================================================
+window.loadTrending = async function() {
+  try {
+    var resp = await fetch(API + '/api/trending');
+    var data = await resp.json();
+    var mCount = (data.movies || []).length;
+    var bCount = (data.books || []).length;
+    document.getElementById('sMed').textContent = (mCount + bCount);
+    document.getElementById('sMsg').textContent = '✅';
+  } catch(e) {
+    document.getElementById('sMsg').textContent = '—';
+  }
+};
+
+// ============================================================
+// CATALOG — D1 database content
+// ============================================================
+window.loadCatalog = async function() {
+  var container = document.getElementById('catalogList');
+  if (!container) return;
+  container.innerHTML = '<div class="loading">Loading catalog...</div>';
+  
+  try {
+    var resp = await fetch(API + '/api/catalog');
+    var data = await resp.json();
+    if (data.results && data.results.length) {
+      var html = '<div class="sr-count">' + data.results.length + ' items in catalog</div>';
+      data.results.forEach(function(item) {
+        html += '<div class="sr-card">';
+        if (item.image) html += '<img src="' + item.image + '" class="sr-img" alt="' + item.title + '">';
+        html += '<div class="sr-info">';
+        html += '<h3>' + item.title + '</h3>';
+        html += '<div class="sr-meta">';
+        html += '<span class="badge-t ' + item.type + '">' + item.type + '</span>';
+        if (item.year) html += '<span>' + item.year + '</span>';
+        if (item.rating) html += '<span>⭐ ' + item.rating + '</span>';
+        html += '</div>';
+        if (item.description) html += '<p>' + item.description.substring(0, 100) + '</p>';
+        html += '<button onclick="deleteCatalog(' + item.id + ')" class="del-btn">🗑️</button>';
+        html += '</div></div>';
+      });
+      container.innerHTML = html;
+    } else {
+      container.innerHTML = '<div class="sr-empty">Catalog khali hai. Items add karo!</div>';
+    }
+  } catch(e) {
+    container.innerHTML = '<div class="sr-error">Catalog load nahi ho paya.</div>';
+  }
+};
+
+window.addToCatalog = async function() {
+  var title = document.getElementById('catTitle').value.trim();
+  var type = document.getElementById('catType').value;
+  var desc = document.getElementById('catDesc').value.trim();
+  if (!title) return alert('Title zaroori hai!');
+  
+  try {
+    await fetch(API + '/api/catalog', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: title, type: type, description: desc })
+    });
+    document.getElementById('catTitle').value = '';
+    document.getElementById('catDesc').value = '';
+    loadCatalog();
+  } catch(e) {
+    alert('Add failed: ' + e.message);
+  }
+};
+
+window.deleteCatalog = async function(id) {
+  if (!confirm('Delete this item?')) return;
+  try {
+    await fetch(API + '/api/catalog/item?id=' + id, { method: 'DELETE' });
+    loadCatalog();
+  } catch(e) {}
+};
+
+// ============================================================
+// AI CHAT — worker AI router
+// ============================================================
+window.chat = async function(msg) {
+  if (!msg || !msg.trim()) return;
+  msg = msg.trim();
+  var msgs = document.getElementById('cMsgs') || document.getElementById('qChat');
+  if (!msgs) return;
+  
+  // Add user message
+  msgs.innerHTML += '<div class="cm user"><span class="cb">👤 YOU</span><p>' + escHtml(msg) + '</p></div>';
+  
+  try {
+    var resp = await fetch(API + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg })
+    });
+    var data = await resp.json();
+    msgs.innerHTML += '<div class="cm ai"><span class="cb">' + (data.icon || '⚡') + ' ' + (data.worker || 'MAIN').toUpperCase() + '</span><p>' + escHtml(data.response || 'No response') + '</p></div>';
+  } catch(e) {
+    msgs.innerHTML += '<div class="cm ai"><span class="cb">⚡ MAIN AI</span><p>Worker se connect nahi ho paya. Try again! 🔌</p></div>';
+  }
+  
+  msgs.scrollTop = msgs.scrollHeight;
+};
+
+window.qSend = function() {
+  var input = document.getElementById('qIn');
+  if (input && input.value.trim()) {
+    window.chat(input.value);
+    input.value = '';
+  }
+};
+
+// ============================================================
+// UTILITIES
+// ============================================================
+function escHtml(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
 })();
+
+// ============================================================
+// TABS — movie & book tab switching
+// ============================================================
+window.switchMovieTab = function(btn, type) {
+  document.querySelectorAll('#p-movies .tabb').forEach(function(b){ b.classList.remove('on') });
+  btn.classList.add('on');
+  window.loadMovies(type);
+};
+
+window.switchBookTab = function(btn, q) {
+  document.querySelectorAll('#p-books .tabb').forEach(function(b){ b.classList.remove('on') });
+  btn.classList.add('on');
+  window.loadBooks(q);
+};
+
+// Load on page show
+window.go = (function(orig){
+  return function(p) {
+    orig(p);
+    if (p === 'movies') window.loadMovies('popular');
+    if (p === 'books') window.loadBooks('famous');
+  };
+})(window.go);

@@ -1,0 +1,11 @@
+name: jdub-hub
+services:
+  - name: web
+    type: static
+    routes:
+      - path: /
+        glob: /**
+        dir: public
+    redirects:
+      - source: /api/*
+        destination: https://jdub-deploy.njcreative123.workers.dev/api/*

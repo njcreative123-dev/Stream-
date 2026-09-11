@@ -1,7 +1,60 @@
 name = "jdub-hub-worker"
 main = "src/workers/index.js"
 compatibility_date = "2024-01-01"
+account_id = "18998bfa1e33fe431b59dd938db7907c"
+
+# ============================================================
+# JDUB Hub — Complete Cloudflare Free Tier Architecture
+# Services: Workers, KV, D1, R2, Cron, Pages, Turnstile, AI
+# ============================================================
 
 [vars]
 ENVIRONMENT = "production"
 WELCOME_MESSAGE = "Welcome to JDUB Hub API"
+
+# Free TMDB API (no key needed for basic, can add for more)
+TMDB_BASE = "https://api.themoviedb.org/3"
+# Free Open Library API (no key needed)
+OPENLIBRARY = "https://openlibrary.org"
+
+# ============================================================
+# CLOUDFLARE KV — Free: 100K reads/day, 1K writes/day
+# Used for: caching, session store, rate limiting
+# ============================================================
+# Create: wrangler kv namespace create "CACHE"
+[[kv_namespaces]]
+binding = "CACHE"
+id = "__KV_CACHE_ID__"
+# preview_id = "__KV_CACHE_PREVIEW_ID__"
+
+# ============================================================
+# CLOUDFLARE D1 — Free: 5GB storage, 5M reads/day
+# Used for: movie/book catalog, search index, user data
+# ============================================================
+# Create: wrangler d1 create jdub-catalog
+[[d1_databases]]
+binding = "CATALOG_DB"
+database_name = "jdub-catalog"
+database_id = "__D1_DATABASE_ID__"
+
+# ============================================================
+# CLOUDFLARE R2 — Free: 10GB storage, 1M Class A ops/month
+# Used for: thumbnail storage, exported data cache
+# ============================================================
+# Create: wrangler r2 bucket create jdub-media
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "jdub-media"
+
+# ============================================================
+# CLOUDFLARE CRON — Free: 1/day scheduled trigger
+# Used for: daily data sync, cache refresh
+# ============================================================
+[triggers]
+crons = ["0 6 * * *"]
+
+# ============================================================
+# CLOUDFLARE ANALYTICS — Free tier
+# ============================================================
+[analytics_engine]
+binding = "ANALYTICS"

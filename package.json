@@ -1,12 +1,18 @@
 {
   "name": "jdub-hub",
-  "version": "2.0.0",
-  "description": "JDUB Hub — AI + Telegram + Live TV + GitHub Bot",
+  "version": "3.0.0",
+  "description": "JDUB Hub — Movies, Books, AI, Live TV — Free Tier Architecture",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "pages": "wrangler pages deploy public",
-    "export": "python3 scripts/export_telegram.py"
-  }
+    "deploy:worker": "wrangler deploy",
+    "deploy:pages": "wrangler pages deploy public --project-name=jdub-hub",
+    "search": "curl -s 'https://jdub-deploy.njcreative123.workers.dev/api/search?q=batman'",
+    "movies": "curl -s 'https://jdub-deploy.njcreative123.workers.dev/api/movies?type=popular'",
+    "books": "curl -s 'https://jdub-deploy.njcreative123.workers.dev/api/books?q=famous'",
+    "health": "curl -s 'https://jdub-deploy.njcreative123.workers.dev/api/health'",
+    "status": "curl -s 'https://jdub-deploy.njcreative123.workers.dev/api/status'"
+  },
+  "keywords": ["cloudflare-workers", "tmdb", "openlibrary", "telegram", "free-stack"],
+  "author": "njcreative123"
 }

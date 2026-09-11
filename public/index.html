@@ -3,45 +3,165 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JDUB Hub</title>
+<title>JDUB Hub — Movies, Books, AI</title>
+<meta name="description" content="JDUB Hub — Free movies, books, AI chat, live TV. Powered by Cloudflare + GitHub.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <div class="loader" id="loader">
-<div class="ld-inner">
-<div class="ld-icon">⚡</div>
-<div class="ld-text">JDUB HUB</div>
-<div class="ld-bar"><div class="ld-fill"></div></div>
-<div class="ld-sub">Initializing AI Workers...</div>
+  <div class="ld-inner">
+    <div class="ld-icon">⚡</div>
+    <div class="ld-text">JDUB HUB</div>
+    <div class="ld-bar"><div class="ld-fill"></div></div>
+    <div class="ld-sub">Initializing 10+ free services...</div>
+  </div>
 </div>
-</div>
+
 <div class="app" id="app">
-<nav class="side" id="side">
-<div class="side-h"><div class="slogo">⚡</div><div class="sbrand">JDUB<span>HUB</span></div></div>
-<div class="nav">
-<button class="nb on" data-p="dash" onclick="go('dash')"><span class="ni">🏠</span>Dashboard</button>
-<button class="nb" data-p="chat" onclick="go('chat')"><span class="ni">🤖</span>AI Chat</button>
-<button class="nb" data-p="tv" onclick="go('tv')"><span class="ni">📺</span>Live TV</button>
-<button class="nb" data-p="tg" onclick="go('tg')"><span class="ni">📱</span>Telegram</button>
-<button class="nb" data-p="wk" onclick="go('wk')"><span class="ni">⚙️</span>Workers</button>
+  <!-- Sidebar -->
+  <nav class="side" id="side">
+    <div class="side-h">
+      <div class="slogo">⚡</div>
+      <div class="sbrand">JDUB<span>HUB</span></div>
+    </div>
+    <div class="nav">
+      <button class="nb on" data-p="dash" onclick="go('dash')"><span class="ni">🏠</span>Dashboard</button>
+      <button class="nb" data-p="search" onclick="go('search')"><span class="ni">🔍</span>Search</button>
+      <button class="nb" data-p="movies" onclick="go('movies')"><span class="ni">🎬</span>Movies</button>
+      <button class="nb" data-p="books" onclick="go('books')"><span class="ni">📚</span>Books</button>
+      <button class="nb" data-p="catalog" onclick="go('catalog')"><span class="ni">📁</span>Catalog</button>
+      <button class="nb" data-p="chat" onclick="go('chat')"><span class="ni">🤖</span>AI Chat</button>
+      <button class="nb" data-p="tv" onclick="go('tv')"><span class="ni">📺</span>Live TV</button>
+      <button class="nb" data-p="wk" onclick="go('wk')"><span class="ni">⚙️</span>Workers</button>
+    </div>
+    <div class="side-f"><div class="dot"></div>All Systems Online</div>
+  </nav>
+
+  <main class="main">
+    <!-- PAGE: DASHBOARD -->
+    <div class="pg on" id="p-dash">
+      <div class="ph"><h1>⚡ Command Center</h1><p class="ps">Everything connected, everything live</p></div>
+      <div class="gr">
+        <div class="cd"><div class="ch2"><span>🤖</span><h3>AI Workers</h3></div><div class="wg"><span class="wp"><i class="dot"></i>Main AI</span><span class="wp"><i class="dot"></i>Search</span><span class="wp"><i class="dot"></i>Analyze</span><span class="wp"><i class="dot"></i>Summarize</span><span class="wp"><i class="dot"></i>Live TV</span><span class="wp"><i class="dot"></i>Telegram</span></div></div>
+        <div class="cd"><div class="ch2"><span>📊</span><h3>Quick Stats</h3></div><div class="sg"><div class="st"><div class="sn" id="sUp">0m</div><div class="sl">Uptime</div></div><div class="st"><div class="sn">6</div><div class="sl">Workers</div></div><div class="st"><div class="sn" id="sMsg">0</div><div class="sl">Messages</div></div><div class="st"><div class="sn" id="sMed">0</div><div class="sl">Content</div></div></div></div>
+      </div>
+      <div class="quick-links">
+        <button class="ql" onclick="go('search')">🔍 Search Content</button>
+        <button class="ql" onclick="go('movies')">🎬 Movies</button>
+        <button class="ql" onclick="go('books')">📚 Books</button>
+        <button class="ql" onclick="go('catalog')">📁 My Catalog</button>
+        <button class="ql" onclick="go('chat')">🤖 AI Chat</button>
+        <button class="ql" onclick="go('tv')">📺 Live TV</button>
+      </div>
+    </div>
+
+    <!-- PAGE: SEARCH -->
+    <div class="pg" id="p-search">
+      <div class="ph"><h1>🔍 Search Everything</h1><p class="ps">Movies + Books + Catalog — ek saath</p></div>
+      <div class="search-wrap">
+        <input type="text" id="searchInput" class="search-input" placeholder="Movie, book, series search karo..." onkeydown="if(event.key==='Enter')searchContent()">
+        <button class="search-btn" onclick="searchContent()">🔍 Search</button>
+      </div>
+      <div id="searchResults" class="search-results"></div>
+    </div>
+
+    <!-- PAGE: MOVIES -->
+    <div class="pg" id="p-movies">
+      <div class="ph"><h1>🎬 Movies</h1><p class="ps">TMDB se live data</p></div>
+      <div class="tab-row">
+        <button class="tabb on" onclick="switchMovieTab(this,'popular')">🔥 Popular</button>
+        <button class="tabb" onclick="switchMovieTab(this,'top_rated')">⭐ Top Rated</button>
+        <button class="tabb" onclick="switchMovieTab(this,'now_playing')">🎥 Now Playing</button>
+        <button class="tabb" onclick="switchMovieTab(this,'upcoming')">🗓️ Upcoming</button>
+      </div>
+      <div id="moviesGrid" class="grid-movies"><div class="loading">Loading movies...</div></div>
+    </div>
+
+    <!-- PAGE: BOOKS -->
+    <div class="pg" id="p-books">
+      <div class="ph"><h1>📚 Books</h1><p class="ps">Open Library — free reading</p></div>
+      <div class="search-wrap small">
+        <input type="text" id="bookInput" class="search-input" placeholder="Book search..." onkeydown="if(event.key==='Enter')loadBooks(document.getElementById('bookInput').value)">
+        <button class="search-btn" onclick="loadBooks(document.getElementById('bookInput').value)">📚 Search</button>
+      </div>
+      <div class="tab-row">
+        <button class="tabb on" onclick="switchBookTab(this,'famous')">📖 Famous</button>
+        <button class="tabb" onclick="switchBookTab(this,'science')">🔬 Science</button>
+        <button class="tabb" onclick="switchBookTab(this,'Hinduism')">🕉️ Hinduism</button>
+      </div>
+      <div id="booksGrid" class="grid-books"><div class="loading">Loading books...</div></div>
+    </div>
+
+    <!-- PAGE: CATALOG -->
+    <div class="pg" id="p-catalog">
+      <div class="ph"><h1>📁 My Catalog</h1><p class="ps">D1 database — apna content</p></div>
+      <div class="add-card">
+        <input type="text" id="catTitle" class="search-input" placeholder="Title...">
+        <select id="catType" class="cat-select">
+          <option value="movie">🎬 Movie</option>
+          <option value="book">📚 Book</option>
+          <option value="series">📺 Series</option>
+        </select>
+        <input type="text" id="catDesc" class="search-input" placeholder="Description...">
+        <button class="search-btn" onclick="addToCatalog()">➕ Add</button>
+      </div>
+      <div id="catalogList" class="search-results"><div class="loading">Loading catalog...</div></div>
+    </div>
+
+    <!-- PAGE: CHAT -->
+    <div class="pg" id="p-chat">
+      <div class="ph"><h1>🤖 AI Chat Hub</h1><p class="ps">Main AI + 6 Worker AIs</p></div>
+      <div class="cb2">
+        <div class="cms" id="cMsgs">
+          <div class="cm ai"><span class="cb">⚡ MAIN AI</span><p>Welcome! Movie/book search ya koi bhi sawaal poocho 🎉</p>
+            <div class="caps">
+              <div class="cap" onclick="chat('Search karo')">🔍 Search</div>
+              <div class="cap" onclick="chat('Analyze karo')">📊 Analyze</div>
+              <div class="cap" onclick="chat('Summary banao')">📝 Summary</div>
+              <div class="cap" onclick="chat('Live TV dikhao')">📺 Live TV</div>
+              <div class="cap" onclick="chat('Status batao')">⚙️ Status</div>
+            </div>
+          </div>
+        </div>
+        <div class="cin"><input class="ci" id="cIn" placeholder="Message type karo..." onkeydown="if(event.key==='Enter'){chat(document.getElementById('cIn').value);document.getElementById('cIn').value='';}"><button class="sn2" onclick="chat(document.getElementById('cIn').value);document.getElementById('cIn').value='';">Send ⚡</button></div>
+      </div>
+    </div>
+
+    <!-- PAGE: LIVE TV -->
+    <div class="pg" id="p-tv">
+      <div class="ph"><h1>📺 Live TV</h1><p class="ps">Cloudflare powered</p></div>
+      <div class="cg">
+        <div class="ch3"><div class="ci2">🎬</div><div class="cn">Hindi Movies</div><div class="cs">● LIVE</div></div>
+        <div class="ch3"><div class="ci2">🎥</div><div class="cn">Hindi Dubbed</div><div class="cs">● LIVE</div></div>
+        <div class="ch3"><div class="ci2">📺</div><div class="cn">Web Series</div><div class="cs">● LIVE</div></div>
+        <div class="ch3"><div class="ci2">🎵</div><div class="cn">Music TV</div><div class="cs">● LIVE</div></div>
+        <div class="ch3"><div class="ci2">📰</div><div class="cn">News</div><div class="cs">● LIVE</div></div>
+        <div class="ch3"><div class="ci2">⚽</div><div class="cn">Sports</div><div class="cs">● LIVE</div></div>
+      </div>
+    </div>
+
+    <!-- PAGE: WORKERS STATUS -->
+    <div class="pg" id="p-wk">
+      <div class="ph"><h1>⚙️ Services Status</h1><p class="ps">10+ free services live</p></div>
+      <div class="wgrid">
+        <div class="wi"><div class="wic">⚡</div><div class="winf"><h3>Main AI Orchestrator</h3><p>Worker routing</p><div class="wst"><span class="badge on">● Online</span></div></div></div>
+        <div class="wi"><div class="wic">🔍</div><div class="winf"><h3>Search Worker</h3><p>TMDB + Open Library + D1</p><div class="wst"><span class="badge on">● Online</span></div></div></div>
+        <div class="wi"><div class="wic">📚</div><div class="winf"><h3>Books API</h3><p>Open Library (free)</p><div class="wst"><span class="badge on">● Online</span></div></div></div>
+        <div class="wi"><div class="wic">🎬</div><div class="winf"><h3>Movies API</h3><p>TMDB (free tier)</p><div class="wst"><span class="badge on">● Online</span></div></div></div>
+        <div class="wi"><div class="wic">🗄️</div><div class="winf"><h3>D1 Database</h3><p>SQLite — catalog</p><div class="wst"><span class="badge on">● Ready</span></div></div></div>
+        <div class="wi"><div class="wic">⚡</div><div class="winf"><h3>KV Cache</h3><p>100K reads/day free</p><div class="wst"><span class="badge on">● Ready</span></div></div></div>
+        <div class="wi"><div class="wic">📦</div><div class="winf"><h3>R2 Storage</h3><p>10GB free</p><div class="wst"><span class="badge on">● Ready</span></div></div></div>
+        <div class="wi"><div class="wic">⏰</div><div class="winf"><h3>Cron Sync</h3><p>Daily data update</p><div class="wst"><span class="badge on">● Scheduled</span></div></div></div>
+        <div class="wi"><div class="wic">📱</div><div class="winf"><h3>Telegram Bot</h3><p>Webhook commands</p><div class="wst"><span class="badge on">● Online</span></div></div></div>
+        <div class="wi"><div class="wic">🔒</div><div class="winf"><h3>GitHub Security</h3><p>CodeQL + Dependabot</p><div class="wst"><span class="badge on">● Active</span></div></div></div>
+        <div class="wi"><div class="wic">📈</div><div class="winf"><h3>Analytics</h3><p>Cloudflare Web Analytics</p><div class="wst"><span class="badge on">● Free</span></div></div></div>
+        <div class="wi"><div class="wic">🌐</div><div class="winf"><h3>CDN</h3><p>Cloudflare Network</p><div class="wst"><span class="badge on">● 300+ cities</span></div></div></div>
+      </div>
+    </div>
+  </main>
 </div>
-<div class="side-f"><div class="dot"></div>All Systems Online</div>
-</nav>
-<main class="main">
-<div class="pg on" id="p-dash">
-<div class="ph"><h1>⚡ Command Center</h1><p class="ps">Everything connected, everything live</p></div>
-<div class="gr">
-<div class="cd"><div class="ch2"><span>🤖</span><h3>AI Workers</h3></div><div class="wg"><span class="wp"><i class="dot"></i>Main AI</span><span class="wp"><i class="dot"></i>Search</span><span class="wp"><i class="dot"></i>Analyze</span><span class="wp"><i class="dot"></i>Summarize</span><span class="wp"><i class="dot"></i>Live TV</span><span class="wp"><i class="dot"></i>Telegram</span></div></div>
-<div class="cd"><div class="ch2"><span>📊</span><h3>Quick Stats</h3></div><div class="sg"><div class="st"><div class="sn" id="sUp">0m</div><div class="sl">Uptime</div></div><div class="st"><div class="sn">6</div><div class="sl">Workers</div></div><div class="st"><div class="sn" id="sMsg">0</div><div class="sl">Messages</div></div><div class="st"><div class="sn" id="sMed">0</div><div class="sl">Media</div></div></div></div>
-<div class="cd cw"><div class="ch2"><span>💬</span><h3>Quick Chat</h3><button class="tb" onclick="go('chat')" style="margin-left:auto">Full Chat →</button></div><div class="qchat" id="qChat"><div class="cm ai"><span class="cb">⚡ MAIN AI</span><p>Hey! Main JDUB AI hu. Kuch poocho! 🔥</p></div></div><div class="cin"><input class="ci" id="qIn" placeholder="Type message..." onkeydown="if(event.key==='Enter')qSend()"><button class="sn2" onclick="qSend()">⚡</button></div></div>
-</div></div>
-<div class="pg" id="p-chat"><div class="ph"><h1>🤖 AI Chat Hub</h1><p class="ps">Main AI + 6 Worker AIs</p></div><div class="cb2"><div class="cms" id="cMsgs"><div class="cm ai"><span class="cb">⚡ MAIN AI</span><p>Welcome! 🎉</p><div class="caps"><div class="cap" onclick="chat('Search karo')">🔍 Search</div><div class="cap" onclick="chat('Analyze karo')">📊 Analyze</div><div class="cap" onclick="chat('Summary banao')">📝 Summary</div><div class="cap" onclick="chat('Live TV dikhao')">📺 Live TV</div><div class="cap" onclick="chat('Telegram data')">📱 Telegram</div><div class="cap" onclick="chat('Status batao')">⚙️ Status</div></div></div></div><div class="cin"><input class="ci" id="cIn" placeholder="Message type karo..." onkeydown="if(event.key==='Enter')chat(this.value)"><button class="sn2" onclick="chat(document.getElementById('cIn').value)">Send ⚡</button></div></div></div>
-<div class="pg" id="p-tv"><div class="ph"><h1>📺 Live TV</h1><p class="ps">Cloudflare powered</p></div><div class="tvm"><div class="tvo" id="tOv"><div class="tvp" onclick="this.parentElement.style.display='none'">▶</div></div></div><div class="cg"><div class="ch3" onclick="alert('Stream coming soon!')"><div class="ci2">🎬</div><div class="cn">Hindi Movies</div><div class="cs">● LIVE</div></div><div class="ch3" onclick="alert('Stream coming soon!')"><div class="ci2">🎥</div><div class="cn">Hindi Dubbed</div><div class="cs">● LIVE</div></div><div class="ch3" onclick="alert('Stream coming soon!')"><div class="ci2">📺</div><div class="cn">Web Series</div><div class="cs">● LIVE</div></div><div class="ch3" onclick="alert('Stream coming soon!')"><div class="ci2">🎵</div><div class="cn">Music TV</div><div class="cs">● LIVE</div></div><div class="ch3" onclick="alert('Stream coming soon!')"><div class="ci2">📰</div><div class="cn">News</div><div class="cs">● LIVE</div></div><div class="ch3" onclick="alert('Stream coming soon!')"><div class="ci2">⚽</div><div class="cn">Sports</div><div class="cs">● LIVE</div></div></div></div>
-<div class="pg" id="p-tg"><div class="ph"><h1>📱 Telegram Hub</h1><p class="ps">Group data — browse, search, download</p></div><div class="tg-bar"><input class="tgs" id="tgQ" placeholder="🔍 Search..." onkeydown="if(event.key==='Enter')tgSearch()"><button class="tb" onclick="tgSearch()">Search</button><button class="tb on" onclick="tgF('all',this)">All</button><button class="tb" onclick="tgF('photo',this)">🖼️</button><button class="tb" onclick="tgF('video',this)">🎬</button><button class="tb" onclick="tgF('doc',this)">📄</button></div><div id="tgC"><div class="empty"><h2>📱</h2><h3>Telegram Data Upload karo</h3><p>Export script chalao ya JSON upload karo</p><div class="up" onclick="document.getElementById('tgF2').click()"><div style="font-size:40px;margin-bottom:8px">📁</div><p>Drag & Drop ya Click</p><input type="file" id="tgF2" accept=".json" style="display:none" onchange="tgUp(this.files)"></div></div></div></div>
-<div class="pg" id="p-wk"><div class="ph"><h1>⚙️ Worker AIs</h1><p class="ps">Status aur kaam</p></div><div class="wk"><div class="wi"><div class="wic">⚡</div><div class="winf"><h3>Main AI Orchestrator</h3><p>Sab workers ko route karta hai</p><div class="wst"><span class="badge on">● Online</span></div></div></div><div class="wi"><div class="wic">🔍</div><div class="winf"><h3>Search Worker</h3><p>Content dhundhta hai</p><div class="wst"><span class="badge on">● Online</span></div></div></div><div class="wi"><div class="wic">📊</div><div class="winf"><h3>Analyze Worker</h3><p>Data samajhta hai</p><div class="wst"><span class="badge on">● Online</span></div></div></div><div class="wi"><div class="wic">📝</div><div class="winf"><h3>Summarize Worker</h3><p>TLDR mode</p><div class="wst"><span class="badge on">● Online</span></div></div></div><div class="wi"><div class="wic">📺</div><div class="winf"><h3>Live TV Worker</h3><p>Stream handle</p><div class="wst"><span class="badge on">● Online</span></div></div></div><div class="wi"><div class="wic">📱</div><div class="winf"><h3>Telegram Worker</h3><p>Group data</p><div class="wst"><span class="badge on">● Online</span></div></div></div></div></div>
-</main>
-</div>
+
 <script src="js/app.js"></script>
 </body>
 </html>

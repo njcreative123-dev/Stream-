@@ -1,0 +1,10 @@
+services:
+  - type: static
+    name: jdub-hub
+    runtime: static
+    buildCommand: ""
+    publishPath: ./public
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://jdub-deploy.njcreative123.workers.dev/api/*
