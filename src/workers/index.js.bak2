@@ -244,8 +244,8 @@ export default {
 
       // --- Frontend ---
       if (path === '/' || path === '/index.html') return html(INDEX_HTML);
-      if (path === '/css/style.css') return new Response(STYLE_CSS, { headers: { ...CORS, 'Content-Type': 'text/css', 'Cache-Control': 'public,max-age=30' } });
-      if (path === '/js/app.js') return new Response(APP_JS, { headers: { ...CORS, 'Content-Type': 'application/javascript', 'Cache-Control': 'public,max-age=30' } });
+      if (path === '/css/style.css') return new Response(STYLE_CSS, { headers: { ...CORS, 'Content-Type': 'text/css', 'Cache-Control': 'public,max-age=600' } });
+      if (path === '/js/app.js') return new Response(APP_JS, { headers: { ...CORS, 'Content-Type': 'application/javascript', 'Cache-Control': 'public,max-age=600' } });
 
       // --- 404 ---
       return json({ error: 'Not Found', endpoints: ['/api/status','/api/auth/login','/api/auth/register','/api/telegram/messages','/api/live-tv','/api/movies','/api/books','/api/search','/api/chat','/api/family-chat','/api/catalog'] }, 404);
@@ -1995,12 +1995,6 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
   .hero-title{font-size:36px}
   .hero{padding:30px 20px}
   .hero-stats{flex-wrap:wrap;gap:16px}
-  .hero-sub{font-size:14px}
-  .sh-actions .sh-btn{padding:10px 18px;font-size:12px}
-  .sh-stats{gap:14px}
-  .sh-stat-val{font-size:22px}
-  .home-section{margin-bottom:24px}
-  .hs-head{flex-wrap:wrap;gap:8px}
 }
 `;
 
@@ -2059,13 +2053,12 @@ function initApp(){
   try { th = localStorage.getItem('njtheme') || 'dark'; } catch(e){}
   document.documentElement.setAttribute('data-theme', th);
   syncThemeIcon();
-  var loader = $('loader');
-  var app = $('app');
-  if (loader) loader.classList.add('hide');
-  if (app) app.classList.add('vis');
+  $('loader').classList.add('hide');
+  $('app').classList.add('vis');
   go('home');
   loadAgentStrip();
   attachFormHandlers();
+  // Dynamic refresh: reload data when page becomes visible
   document.addEventListener('visibilitychange', function(){
     if (!document.hidden && state.page){
       go(state.page);
@@ -2073,22 +2066,12 @@ function initApp(){
   });
 }
 
-var _initDone = false;
-function safeInit(){
-  if (_initDone) return;
-  _initDone = true;
-  try { initApp(); } catch(e){
-    console.error('Init error:', e);
-    var l=$('loader'); if(l) l.classList.add('hide');
-    var a=$('app'); if(a) a.classList.add('vis');
-  }
-}
+// Use multiple methods to ensure init runs
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', function(){ setTimeout(safeInit, 100); });
+  document.addEventListener('DOMContentLoaded', function(){ setTimeout(initApp, 100); });
 } else {
-  setTimeout(safeInit, 100);
+  setTimeout(initApp, 100);
 }
-setTimeout(function(){ var l=$('loader'); if(l && !l.classList.contains('hide')){ l.classList.add('hide'); var a=$('app'); if(a) a.classList.add('vis'); } }, 3000);
 
 /* ---------- Form Handlers ---------- */
 function attachFormHandlers(){
@@ -2464,7 +2447,7 @@ function renderTGMessages(msgs){
       if (vsize > TG_LIMIT){
         h += '<div class="tg-msg-media">';
         h += '<div class="video-big-notice">';
-        h += '<div class="vbn-player" onclick="window.open(this.dataset.url)" style="cursor:pointer" data-url="'+esc(tgWebUrl)+'">';
+        h += '<div class="vbn-player">';
         h += '<iframe src="'+esc(tgWebUrl)+'" width="100%" height="400" frameborder="0" allowfullscreen style="border-radius:12px;background:#000"></iframe>';
         h += '</div>';
         h += '<div class="vbn-info">';
@@ -2695,7 +2678,7 @@ async function loadFamilyRoom(){
   // Fetch messages with timeout
   try{
     var ctrl = new AbortController();
-    var tid = setTimeout(function(){ ctrl.abort(); }, 20000);
+    var tid = setTimeout(function(){ ctrl.abort(); }, 10000);
     var r = await fetch(API+'/api/family-chat', {signal: ctrl.signal});
     clearTimeout(tid);
     var d = await r.json();
@@ -2758,7 +2741,7 @@ async function startFamilyDiscussion(){
   feed.innerHTML = '<div class="family-loading"><div class="spinner"></div><p>🧠 NJ 👨‍👩‍👧‍👦 Family agents discuss kar rahe hain...</p><p style="font-size:11px;color:var(--text2);margin-top:6px">Yeh 10-20 second le sakta hai</p></div>' + existing;
   try{
     var controller = new AbortController();
-    var tid = setTimeout(function(){ controller.abort(); }, 45000);
+    var tid = setTimeout(function(){ controller.abort(); }, 25000);
     var r = await fetch(API+'/api/family-chat/start', {method:'POST', signal: controller.signal});
     clearTimeout(tid);
     var d = await r.json();

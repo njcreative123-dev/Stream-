@@ -244,8 +244,8 @@ export default {
 
       // --- Frontend ---
       if (path === '/' || path === '/index.html') return html(INDEX_HTML);
-      if (path === '/css/style.css') return new Response(STYLE_CSS, { headers: { ...CORS, 'Content-Type': 'text/css', 'Cache-Control': 'public,max-age=30' } });
-      if (path === '/js/app.js') return new Response(APP_JS, { headers: { ...CORS, 'Content-Type': 'application/javascript', 'Cache-Control': 'public,max-age=30' } });
+      if (path === '/css/style.css') return new Response(STYLE_CSS, { headers: { ...CORS, 'Content-Type': 'text/css', 'Cache-Control': 'public,max-age=600' } });
+      if (path === '/js/app.js') return new Response(APP_JS, { headers: { ...CORS, 'Content-Type': 'application/javascript', 'Cache-Control': 'public,max-age=600' } });
 
       // --- 404 ---
       return json({ error: 'Not Found', endpoints: ['/api/status','/api/auth/login','/api/auth/register','/api/telegram/messages','/api/live-tv','/api/movies','/api/books','/api/search','/api/chat','/api/family-chat','/api/catalog'] }, 404);
@@ -600,11 +600,17 @@ async function handleTelegramIngest(request, env) {
 // LIVE TV
 // ============================================================
 async function handleLiveTV(url, env) {
+  const topN = parseInt(url.searchParams.get('top') || '0', 10);
   const kvKey = 'livetv_all';
   if (env.KV_STORE) {
     try {
       const cached = await env.KV_STORE.get(kvKey, { type: 'json' });
-      if (cached && cached.channels?.length > 0) return json(cached);
+      if (cached && cached.channels?.length > 0) {
+        if (topN > 0) {
+          return json({ ...cached, channels: cached.channels.slice(0, topN) });
+        }
+        return json(cached);
+      }
     } catch (e) {}
   }
 
@@ -654,6 +660,9 @@ async function handleLiveTV(url, env) {
 
   if (env.KV_STORE) {
     try { await env.KV_STORE.put(kvKey, JSON.stringify(result), { expirationTtl: 1800 }); } catch (e) {}
+  }
+  if (topN > 0) {
+    return json({ ...result, channels: result.channels.slice(0, topN) });
   }
   return json(result);
 }
@@ -1995,12 +2004,6 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
   .hero-title{font-size:36px}
   .hero{padding:30px 20px}
   .hero-stats{flex-wrap:wrap;gap:16px}
-  .hero-sub{font-size:14px}
-  .sh-actions .sh-btn{padding:10px 18px;font-size:12px}
-  .sh-stats{gap:14px}
-  .sh-stat-val{font-size:22px}
-  .home-section{margin-bottom:24px}
-  .hs-head{flex-wrap:wrap;gap:8px}
 }
 `;
 
@@ -2059,36 +2062,27 @@ function initApp(){
   try { th = localStorage.getItem('njtheme') || 'dark'; } catch(e){}
   document.documentElement.setAttribute('data-theme', th);
   syncThemeIcon();
-  var loader = $('loader');
-  var app = $('app');
-  if (loader) loader.classList.add('hide');
-  if (app) app.classList.add('vis');
+  $('loader').classList.add('hide');
+  $('app').classList.add('vis');
   go('home');
   loadAgentStrip();
   attachFormHandlers();
+  // Dynamic refresh: debounced reload when page becomes visible
+  var _visTimer = null;
   document.addEventListener('visibilitychange', function(){
     if (!document.hidden && state.page){
-      go(state.page);
+      if (_visTimer) clearTimeout(_visTimer);
+      _visTimer = setTimeout(function(){ go(state.page); }, 1500);
     }
   });
 }
 
-var _initDone = false;
-function safeInit(){
-  if (_initDone) return;
-  _initDone = true;
-  try { initApp(); } catch(e){
-    console.error('Init error:', e);
-    var l=$('loader'); if(l) l.classList.add('hide');
-    var a=$('app'); if(a) a.classList.add('vis');
-  }
-}
+// Use multiple methods to ensure init runs
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', function(){ setTimeout(safeInit, 100); });
+  document.addEventListener('DOMContentLoaded', function(){ setTimeout(initApp, 100); });
 } else {
-  setTimeout(safeInit, 100);
+  setTimeout(initApp, 100);
 }
-setTimeout(function(){ var l=$('loader'); if(l && !l.classList.contains('hide')){ l.classList.add('hide'); var a=$('app'); if(a) a.classList.add('vis'); } }, 3000);
 
 /* ---------- Form Handlers ---------- */
 function attachFormHandlers(){
@@ -2229,28 +2223,20 @@ async function loadHome(){
       if($('svcAI')) $('svcAI').textContent = '● '+d.services.ai;
     }
   }catch(e){}
-  // TV channels + hero stats
+  // TV channels + hero stats — use top=8 for fast loading
   try{
-    var r2 = await fetch(API+'/api/live-tv');
+    var r2 = await fetch(API+'/api/live-tv?top=8');
     var d2 = await r2.json();
     if($('stTV')) $('stTV').textContent = (d2.working||0)+'';
     if($('stMovies')) $('stMovies').textContent = (d2.total||0)+'';
     var channels = d2.channels || [];
-    // Pick top working channels across categories for the "Trending" row
-    var telly = channels.filter(function(c){ return c.working && c.hindi; }).slice(0,6);
-    if (telly.length < 6){
-      channels.filter(function(c){ return c.working && !c.hindi; }).slice(0, 6 - telly.length).forEach(function(c){ telly.push(c); });
-    }
-    if (telly.length < 6 && channels.length){
-      channels.slice(0, 6 - telly.length).forEach(function(c){ telly.push(c); });
-    }
     var chEl = $('homeChannels');
     if (chEl){
-      if (!telly.length){
+      if (!channels.length){
         chEl.innerHTML = '<div class="empty small">Channels load honge…</div>';
       } else {
         var ch = '';
-        telly.forEach(function(c, i){
+        channels.forEach(function(c, i){
           var gradColors = ['linear-gradient(135deg,#22d3ee,#a78bfa)','linear-gradient(135deg,#34d399,#22d3ee)','linear-gradient(135deg,#fbbf24,#f472b6)','linear-gradient(135deg,#a78bfa,#f471b5)','linear-gradient(135deg,#38bdf8,#34d399)','linear-gradient(135deg,#f87171,#fbbf24)'];
           var logo = c.logo ? '<img src="'+esc(c.logo)+'" alt="" loading="lazy">' : '<span style="font-size:32px">'+String.fromCodePoint(0x1F4FA)+'</span>';
           ch += '<div class="ch-row-card" data-nav="tv" style="--card-grad:'+gradColors[i % gradColors.length]+'">';
@@ -2259,14 +2245,17 @@ async function loadHome(){
           ch += '<div class="ch-row-meta">'+String.fromCodePoint(0x1F534)+' Live</div></div></div>';
         });
         chEl.innerHTML = ch;
-        // HLS support degrade: set hero bg to first channel logo
-        if (telly[0] && telly[0].logo){
+        if (channels[0] && channels[0].logo){
           var shBg = $('shBg');
-          if (shBg) shBg.style.backgroundImage = 'url('+esc(telly[0].logo)+')';
+          if (shBg) shBg.style.backgroundImage = 'url('+esc(channels[0].logo)+')';
         }
       }
     }
-  }catch(e){ if($('stTV')) $('stTV').textContent='—'; }
+  }catch(e){
+    var chEl2 = $('homeChannels');
+    if (chEl2) chEl2.innerHTML = '<div class="empty small">'+String.fromCodePoint(0x1F525)+' Channels load ho rahe hain — tap TV to dekho</div>';
+    if($('stTV')) $('stTV').textContent='—';
+  }
   // TG stats + latest preview
   try{
     var r3 = await fetch(API+'/api/telegram/stats');
@@ -2464,7 +2453,7 @@ function renderTGMessages(msgs){
       if (vsize > TG_LIMIT){
         h += '<div class="tg-msg-media">';
         h += '<div class="video-big-notice">';
-        h += '<div class="vbn-player" onclick="window.open(this.dataset.url)" style="cursor:pointer" data-url="'+esc(tgWebUrl)+'">';
+        h += '<div class="vbn-player">';
         h += '<iframe src="'+esc(tgWebUrl)+'" width="100%" height="400" frameborder="0" allowfullscreen style="border-radius:12px;background:#000"></iframe>';
         h += '</div>';
         h += '<div class="vbn-info">';
@@ -2695,7 +2684,7 @@ async function loadFamilyRoom(){
   // Fetch messages with timeout
   try{
     var ctrl = new AbortController();
-    var tid = setTimeout(function(){ ctrl.abort(); }, 20000);
+    var tid = setTimeout(function(){ ctrl.abort(); }, 10000);
     var r = await fetch(API+'/api/family-chat', {signal: ctrl.signal});
     clearTimeout(tid);
     var d = await r.json();
@@ -2758,7 +2747,7 @@ async function startFamilyDiscussion(){
   feed.innerHTML = '<div class="family-loading"><div class="spinner"></div><p>🧠 NJ 👨‍👩‍👧‍👦 Family agents discuss kar rahe hain...</p><p style="font-size:11px;color:var(--text2);margin-top:6px">Yeh 10-20 second le sakta hai</p></div>' + existing;
   try{
     var controller = new AbortController();
-    var tid = setTimeout(function(){ controller.abort(); }, 45000);
+    var tid = setTimeout(function(){ controller.abort(); }, 25000);
     var r = await fetch(API+'/api/family-chat/start', {method:'POST', signal: controller.signal});
     clearTimeout(tid);
     var d = await r.json();
