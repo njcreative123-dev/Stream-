@@ -1,5 +1,5 @@
 // ============================================================
-// NJStream — Cloudflare Worker v5.0
+// NJStream — Cloudflare Worker v6.0
 // All-in-One: Live TV, Telegram, AI, Movies, Books
 // ============================================================
 
@@ -25,9 +25,52 @@ function html(content) {
 // ============================================================
 // IPTV SOURCES — Hindi + World
 // ============================================================
+import WORKING_URLS from './working_urls.mjs';
+
+const CATEGORY_RULES = [
+  { name: 'News', kw: ['news','ndtv','aaj tak','abp','times now','republic','india tv','reporter','today','lok sabha','rajya sabha','miracle','1 news','news18','press','sansad','focus','aawaaz','voice of','kisan','jan','samachar','varta','wion','cgtn','aljazeera','france24','sky news','bbn','bbc news','cnn','fox news'] },
+  { name: 'Sports', kw: ['sports','espn','star sports','ten 1','ten 2','ten 3','sony ten','dd sports','sports18','willow','sky sports','beinsports','bein sports','dazn','eir sport','supersport','premier','goal','football','cricket','hockey','f1'] },
+  { name: 'Kids', kw: ['kids','cartoon','nick','pogo','disney','hungama','kiddo','baby','bal','toon','chutti','sony yay','boomerang','mickey','juniors'] },
+  { name: 'Movies', kw: ['movie','cinema','cineplex','gold','max','mov','film','bollywood','select','cinemax','utu','hollywood','movi','flix','8 club','&flix','and flix','&pictures','and pictures','sony wah cinema'] },
+  { name: 'Music', kw: ['music','mtv','9xm','9x','b4u','mirchi','song','dil se','melody','beat','radio','vibe','mix','bollywood music','qawwali','classical','jazz','rock','music india','maaza','etv music','epic music'] },
+  { name: 'Documentaries', kw: ['documentary','discovery','nat geo','national geographic','science','history tv18','animal planet','tlc','bravo','crime','forensic'] },
+  { name: 'Business', kw: ['business','profit','cnbc','bloomberg','money','biz','market','finance','et now'] },
+  { name: 'Religious', kw: ['bhakti','aastha','sanskar','sadhna','shraddha','ishwar','darshan','dharma','guruji','satsang','katha','bhajan','mahua','dharm','bhakti sagar','shubh','divya','parishad'] },
+  { name: 'Regional', kw: ['tamil','telugu','kannada','malayalam','bengali','marathi','punjabi','gujarati','bhojpuri','odia','assamese','haryanvi','rajasthani','himachali','urdu','sindhi','nepali','south'] },
+];
+
+function getCategories(name, group) {
+  const n = (name + ' ' + (group || '')).toLowerCase();
+  const cats = new Set();
+  for (const rule of CATEGORY_RULES) {
+    if (rule.kw.some(k => n.includes(k))) cats.add(rule.name);
+  }
+  if (cats.size === 0) cats.add('General');
+  return Array.from(cats);
+}
+
+function baseName(name) {
+  return name
+    .replace(/\s*\(\d{3,4}p\)/gi, '')
+    .replace(/\s*\[[^\]]*\](?:\s*\([^)]*\))?/gi, '')
+    .replace(/\s*\(hd\)/gi, '')
+    .trim();
+}
+
+function qualityRank(name) {
+  const n = name.toLowerCase();
+  if (n.includes('1080') || n.includes('4k')) return 5;
+  if (n.includes('720')) return 4;
+  if (n.includes('576')) return 3;
+  if (n.includes('480')) return 2;
+  if (n.includes('396') || n.includes('404')) return 1;
+  return 0;
+}
+
 const IPTV_SOURCES = [
-  { name: 'India Hindi', url: 'https://raw.githubusercontent.com/iptv-org/iptv/master/streams/in.m3u' },
-  { name: 'World Hindi', url: 'https://raw.githubusercontent.com/Free-TV/IPTV/main/streams/India.m3u' },
+  { name: 'India', url: 'https://raw.githubusercontent.com/iptv-org/iptv/master/streams/in.m3u' },
+  { name: 'Pakistan', url: 'https://raw.githubusercontent.com/iptv-org/iptv/master/streams/pk.m3u' },
+  { name: 'USA', url: 'https://raw.githubusercontent.com/iptv-org/iptv/master/streams/us.m3u' },
 ];
 
 const HINDI_KEYWORDS = [
@@ -93,7 +136,7 @@ export default {
         return handleTelegramWebhook(request, env);
       if (path === '/api/telegram/messages')
         return handleTelegramMessages(url, env);
-      if (path === '/api/telegram/file') return handleTelegramFile(url, env);
+      if (path === '/api/telegram/file') return handleTelegramFile(request, url, env);
       if (path === '/api/telegram/sync' && method === 'POST')
         return handleTelegramSync(env);
       if (path === '/api/telegram/ingest' && method === 'POST')
@@ -106,6 +149,8 @@ export default {
         return handleLiveTV(url, env);
       if (path === '/api/live-tv/stream')
         return handleLiveTVStream(url);
+      if (path === '/api/live-tv/proxy')
+        return proxyLiveTV(request, url);
 
       // --- Movies ---
       if (path === '/api/movies')
@@ -139,9 +184,9 @@ export default {
       if (path === '/' || path === '/index.html')
         return html(INDEX_HTML);
       if (path === '/css/style.css')
-        return new Response(STYLE_CSS, { headers: { ...CORS, 'Content-Type': 'text/css', 'Cache-Control': 'public,max-age=3600' } });
+        return new Response(STYLE_CSS, { headers: { ...CORS, 'Content-Type': 'text/css', 'Cache-Control': 'public,max-age=600' } });
       if (path === '/js/app.js')
-        return new Response(APP_JS, { headers: { ...CORS, 'Content-Type': 'application/javascript', 'Cache-Control': 'public,max-age=3600' } });
+        return new Response(APP_JS, { headers: { ...CORS, 'Content-Type': 'application/javascript', 'Cache-Control': 'public,max-age=600' } });
 
       // --- 404 ---
       return json({ error: 'Not Found', endpoints: ['/api/status','/api/telegram/messages','/api/live-tv','/api/movies','/api/books','/api/search','/api/chat','/api/catalog'] }, 404);
@@ -257,6 +302,9 @@ async function handleTelegramMessages(url, env) {
     const raw = await env.KV_STORE.get(`msg:${chatId}:${id}`, { type: 'json' });
     if (raw) {
       if (!type || raw.media_type === type || (type === 'media' && raw.has_media)) {
+        const cid = (raw.chat_id || chatId || '').toString();
+        const num = cid.replace('-100', '').replace('-', '');
+        raw.tlink = num ? 'https://t.me/c/' + num + '/' + raw.id : '';
         messages.push(raw);
       }
     }
@@ -418,31 +466,59 @@ async function handleTelegramStats(env) {
 // ============================================================
 
 
-async function handleTelegramFile(url, env) {
+async function handleTelegramFile(request, url, env) {
   if (!env.TG_BOT_TOKEN) return json({ error: 'Bot token not configured' }, 500);
   const fileId = url.searchParams.get('file_id');
   if (!fileId) return json({ error: 'file_id required' }, 400);
+  const asDownload = url.searchParams.get('dl') === '1';
+
   try {
     const resp = await fetch('https://api.telegram.org/bot' + env.TG_BOT_TOKEN + '/getFile?file_id=' + encodeURIComponent(fileId));
     const data = await resp.json();
-    if (!data.ok) return json({ error: 'Telegram API error', detail: data.description }, 500);
+    if (!data.ok) {
+      const desc = data.description || 'Unknown error';
+      const tooBig = desc.toLowerCase().includes('too big') || data.error_code === 400 && desc.toLowerCase().includes('file');
+      if (tooBig) {
+        return json({ error: 'Telegram file too large for bot proxy (20MB limit)', detail: desc, hint: 'Telegram app me kholo' }, 413);
+      }
+      return json({ error: 'Telegram API error', detail: desc }, 500);
+    }
     const filePath = data.result.file_path;
-    const fileResp = await fetch('https://api.telegram.org/file/bot' + env.TG_BOT_TOKEN + '/' + filePath);
-    return new Response(fileResp.body, {
-      headers: {
-        'Content-Type': data.result.file_path.endsWith('.mp4') ? 'video/mp4' : data.result.file_path.endsWith('.jpg') || data.result.file_path.endsWith('.png') ? 'image/jpeg' : 'application/octet-stream',
-        'Content-Length': data.result.file_size || '',
-        'Access-Control-Allow-Origin': '*',
-      },
-    });
+    const fileName = (filePath.split('/').pop() || 'file') + (filePath.includes('.') ? '' : '.' + (data.result.mime_type ? data.result.mime_type.split('/')[1].replace('mpegurl','mp4') : 'bin'));
+
+    const fileUrl = 'https://api.telegram.org/file/bot' + env.TG_BOT_TOKEN + '/' + filePath;
+    const range = request.headers.get('Range') || '';
+    const headers = { ...CORS };
+    if (range) headers['Range'] = range;
+    const fileResp = await fetch(fileUrl, { headers });
+
+    // Determine content type from path extension or mime
+    const lower = filePath.toLowerCase();
+    let ct = 'application/octet-stream';
+    if (lower.endsWith('.mp4') || lower.endsWith('.mkv') || lower.endsWith('.webm')) ct = 'video/mp4';
+    else if (/(\.jpg|\.jpeg|\.png|\.gif|\.webp)$/.test(lower)) ct = 'image/' + (lower.endsWith('.png') ? 'png' : lower.endsWith('.gif') ? 'gif' : lower.endsWith('.webp') ? 'webp' : 'jpeg');
+    else if (lower.endsWith('.mp3') || lower.endsWith('.m4a') || lower.endsWith('.ogg')) ct = 'audio/mpeg';
+    else if (lower.endsWith('.pdf')) ct = 'application/pdf';
+    else if (data.result.mime_type) ct = data.result.mime_type;
+
+    const outHeaders = new Headers(fileResp.headers);
+    outHeaders.set('Content-Type', ct);
+    outHeaders.set('Access-Control-Allow-Origin', '*');
+    outHeaders.set('Accept-Ranges', 'bytes');
+    outHeaders.set('Content-Disposition', (asDownload ? 'attachment' : 'inline') + '; filename="' + fileName.replace(/[^a-zA-Z0-9._-]/g, '_') + '"');
+    if (!outHeaders.has('Cache-Control')) outHeaders.set('Cache-Control', 'public, max-age=300');
+
+    return new Response(fileResp.body, { status: fileResp.status, headers: outHeaders });
   } catch (e) {
     return json({ error: e.message }, 500);
   }
 }
 
 async function handleLiveTV(url, env) {
+  const version = 'v6';
+  const cacheKey = 'livetv_' + version;
   if (env.KV_STORE) {
-    const cached = await env.KV_STORE.get('livetv_all');
+    const cached = await env.KV_STORE.get(cacheKey);
     if (cached) return json(JSON.parse(cached));
   }
 
@@ -452,26 +528,54 @@ async function handleLiveTV(url, env) {
     channels.forEach(ch => { ch.source = src.name; allChannels.push(ch); });
   }
 
-  // Deduplicate by name
-  const seen = new Set();
-  const unique = allChannels.filter(ch => {
-    const key = ch.name.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
+  // Build dedup map: base name -> best variant (working first, then highest quality)
+  const best = new Map();
+  for (const ch of allChannels) {
+    const key = baseName(ch.name).toLowerCase();
+    const working = WORKING_URLS.has(ch.url);
+    const q = qualityRank(ch.name);
+    const cur = best.get(key);
+    if (!cur || (working && !cur.working) || (working === cur.working && q > cur.quality)) {
+      best.set(key, { ...ch, working, quality: q, base: baseName(ch.name), categories: getCategories(ch.name, ch.group) });
+    }
+  }
+
+  const unique = Array.from(best.values());
+
+  // Sort: Hindi first, then working first, then quality
+  unique.sort((a, b) => {
+    if ((b.hindi ? 1 : 0) !== (a.hindi ? 1 : 0)) return (b.hindi ? 1 : 0) - (a.hindi ? 1 : 0);
+    if (b.working !== a.working) return (b.working ? 1 : 0) - (a.working ? 1 : 0);
+    return b.quality - a.quality;
   });
 
-  // Sort: Hindi first
-  unique.sort((a, b) => (b.hindi ? 1 : 0) - (a.hindi ? 1 : 0));
+  // Category counts (only working channels counted in each category)
+  const categoryCounts = {};
+  const categoryWorking = {};
+  for (const ch of unique) {
+    for (const c of ch.categories) {
+      categoryCounts[c] = (categoryCounts[c] || 0) + 1;
+      if (ch.working) categoryWorking[c] = (categoryWorking[c] || 0) + 1;
+    }
+  }
 
   const hindiCount = unique.filter(ch => ch.hindi).length;
-  const groups = {};
-  unique.forEach(ch => { groups[ch.group] = (groups[ch.group] || 0) + 1; });
+  const workingCount = unique.filter(ch => ch.working).length;
 
-  const result = { channels: unique, total: unique.length, hindi: hindiCount, groups };
+  const result = {
+    channels: unique,
+    total: unique.length,
+    hindi: hindiCount,
+    working: workingCount,
+    categories: {
+      counts: categoryCounts,
+      working: categoryWorking,
+    },
+    groups: (() => { const g = {}; unique.forEach(ch => { g[ch.group] = (g[ch.group] || 0) + 1; }); return g; })(),
+  };
 
   if (env.KV_STORE) {
-    await env.KV_STORE.put('livetv_all', JSON.stringify(result), { expirationTtl: 3600 });
+    await env.KV_STORE.put(cacheKey, JSON.stringify(result), { expirationTtl: 21600 });
   }
 
   return json(result);
@@ -484,6 +588,63 @@ function handleLiveTVStream(url) {
     status: 302,
     headers: { Location: streamUrl, ...CORS },
   });
+}
+
+// Server-side HLS/media proxy — fixes CORS + mixed-content (http://) streams.
+// HLS manifests are rewritten so every segment/key also goes through the proxy.
+async function proxyLiveTV(request, url) {
+  const streamUrl = url.searchParams.get('url');
+  if (!streamUrl) return json({ error: 'url param required' }, 400);
+
+  let parsed;
+  try { parsed = new URL(streamUrl); } catch (e) { return json({ error: 'invalid url' }, 400); }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return json({ error: 'bad protocol' }, 400);
+
+  const range = request.headers.get('Range') || '';
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) NJStream/1.0',
+    'Accept': '*/*',
+  };
+  if (range) headers['Range'] = range;
+
+  let resp;
+  try { resp = await fetch(parsed.href, { headers, redirect: 'follow' }); }
+  catch (e) { return json({ error: 'upstream fetch failed: ' + e.message }, 502); }
+
+  const ct = resp.headers.get('Content-Type') || '';
+  const buf = await resp.arrayBuffer();
+  const headText = new TextDecoder().decode(buf.slice(0, 4096));
+  const isHls = ct.includes('mpegurl') || ct.includes('apple') || headText.trimStart().startsWith('#EXTM3U');
+
+  let body = buf;
+  let outCT = ct || 'application/octet-stream';
+  if (isHls) {
+    const full = new TextDecoder().decode(buf);
+    const prefix = '/api/live-tv/proxy?url=';
+    const rewritten = full.split('\n').map(line => {
+      const t = line.trim();
+      if (!t || t.startsWith('#')) return line;
+      let abs;
+      try { abs = new URL(t, parsed.href).href; } catch (e) { return line; }
+      if (abs.startsWith('http://') || abs.startsWith('https://')) {
+        return prefix + encodeURIComponent(abs);
+      }
+      return line;
+    });
+    body = new TextEncoder().encode(rewritten.join('\n'));
+    outCT = 'application/vnd.apple.mpegurl';
+  }
+
+  const hdrs = new Headers();
+  hdrs.set('Content-Type', outCT);
+  hdrs.set('Access-Control-Allow-Origin', '*');
+  hdrs.set('Access-Control-Allow-Headers', 'Content-Type,Range');
+  hdrs.set('Accept-Ranges', 'bytes');
+  const len = resp.headers.get('Content-Length');
+  if (!isHls && len) hdrs.set('Content-Length', len);
+  const crange = resp.headers.get('Content-Range');
+  if (crange) hdrs.set('Content-Range', crange);
+  return new Response(body, { status: resp.status, headers: hdrs });
 }
 
 // ============================================================
@@ -613,33 +774,78 @@ async function handleSearch(url, env) {
 // ============================================================
 // AI CHAT — Free Cloudflare AI
 // ============================================================
+const OPENROUTER_MODELS = [
+  'deepseek/deepseek-chat-v3-0324:free',
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'qwen/qwen-2.5-72b-instruct:free',
+];
+
+async function runOpenRouter(message, env, history) {
+  if (!env.OPENROUTER_API_KEY) return null;
+  const model = env.OPENROUTER_MODEL || OPENROUTER_MODELS[0];
+  const system = 'You are NJStream AI, the smart assistant of NJStream — a free platform with Live TV (Hindi priority), Movies (TMDB), Books (Open Library), Telegram group data (readable/downloadable/watchable), and multi-source search. Reply in Hindi/Hinglish, helpful, friendly, well-structured with emojis. Keep answers under 250 words.';
+  const body = {
+    model,
+    messages: [
+      { role: 'system', content: system },
+      ...(history || []).map(h => ({ role: h.role, content: h.content })),
+      { role: 'user', content: message },
+    ],
+    temperature: 0.7,
+    max_tokens: 500,
+  };
+  try {
+    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + env.OPENROUTER_API_KEY,
+        'HTTP-Referer': 'https://njsoft-stream.njcreative123.workers.dev',
+        'X-Title': 'NJStream AI',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    const text = data?.choices?.[0]?.message?.content;
+    if (text) return { worker: '🤖 Main AI', icon: '🤖', response: text.trim(), model: data.model || model };
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function smartFallback(message) {
+  const lower = message.toLowerCase();
+  if (lower.includes('tv') || lower.includes('channel') || lower.includes('live') || lower.includes('aaj tak') || lower.includes('news channel'))
+    return { worker: '📺 Live TV', icon: '📺', response: 'Live TV page par 900+ channels hain! 🇮🇳 Hindi, News, Sports, Kids, Movies, Music — sab categories. ✅ Verified (working) channels pehle dikhte hain — click karte hi play ho jata hai. Koi bhi channel try karo! 🎬' };
+  if (lower.includes('movie') || lower.includes('film') || lower.includes('cinema'))
+    return { worker: '🎬 Movies', icon: '🎬', response: 'Movies page par TMDB se Hindi + English movies hain — Popular, Top Rated, Now Playing, Upcoming. 🔥 Koi se bhi category kholo aur explore karo!' };
+  if (lower.includes('book') || lower.includes('padh') || lower.includes('read') || lower.includes('kitab'))
+    return { worker: '📚 Books', icon: '📚', response: 'Books page par Open Library se free books milengi — Hindi books bhi! 📖 Search karo ya categories browse karo. Har book ka "Read Free" link hai.' };
+  if (lower.includes('telegram') || lower.includes('group') || lower.includes('video download') || lower.includes('data'))
+    return { worker: '📱 Telegram', icon: '📱', response: 'Telegram group ka data website par hai 📱 — messages, photos, videos (long videos bhi!), documents. Video inline play hoti hai, download button se file save karo. Bot ke naye messages auto-sync hote hain! 🔄' };
+  if (lower.includes('status') || lower.includes('health') || lower.includes('system'))
+    return { worker: '⚙️ Status', icon: '⚙️', response: 'Saare systems online hain ✅ — Worker, KV Storage, D1 Database, Cron (har 6 ghante), Telegram webhook, IPTV parser. Home page pe live status cards dikhte hain!' };
+  if (lower.includes('search') || lower.includes('dhundh') || lower.includes('khoj') || lower.includes('find'))
+    return { worker: '🔍 Search', icon: '🔍', response: 'Search page par movies + books + Telegram data — sab ek saath search hota hai! 🎯 Koi bhi keyword dalo aur Enter dabao.' };
+  if (lower.includes('help') || lower.includes('madad') || lower.includes('kya kar'))
+    return { worker: '🧭 Help', icon: '🧭', response: 'Main NJStream AI hun! Mujhse poocho: 📺 Live TV channels, 🎬 Movies, 📚 Books, 📱 Telegram data, 🔍 Search, ⚙️ Status. Ya koi bhi general sawaal — best answers ke liye OpenRouter AI se connect hota hai! 😊' };
+  return {
+    worker: '🤖 Main AI', icon: '🤖',
+    response: `Aapne poocha: "${message}" 🤔\n\nMain NJStream AI hun. Ye cheezein kar sakta hun aur inke baare mein jaan sakta hun:\n\n📺 Live TV — 900+ free channels (Hindi first)\n🎬 Movies — TMDB se Hindi/English\n📚 Books — Open Library free reading\n📱 Telegram — Group data readable/downloadable/watchable\n🔍 Search — sab kuch ek saath\n\n⚠️ Achi baat: jab OpenRouter API key set hogi, main kisi bhi sawaal ka detailed jawab dunga! Key ke liye mujhe OPENROUTER_API_KEY chahiye (openrouter.ai se free milegi).`,
+  };
+}
+
 async function handleChat(request, env) {
   const body = await request.json();
   const message = body.message || '';
   if (!message) return json({ error: 'message required' }, 400);
 
-  const lower = message.toLowerCase();
+  // 1) OpenRouter (real LLM) — best answers
+  const llm = await runOpenRouter(message, env, body.history || []);
+  if (llm) return json(llm);
 
-  // Smart routing
-  if (lower.includes('tv') || lower.includes('channel') || lower.includes('live'))
-    return json({ worker: '📺 Live TV', icon: '📺', response: 'Live TV page par jaake channels dekho! Hindi priority channels upar dikhenge. Koi bhi channel click karo aur direct play hoga. 🎬' });
-
-  if (lower.includes('movie') || lower.includes('film'))
-    return json({ worker: '🎬 Movies', icon: '🎬', response: 'Movies page par TMDB se Hindi aur English movies available hain. Search ya category choose karo! 🔥' });
-
-  if (lower.includes('book') || lower.includes('padh') || lower.includes('read'))
-    return json({ worker: '📚 Books', icon: '📚', response: 'Books page par Open Library se free books milenge. Search karo ya famous books check karo! 📖' });
-
-  if (lower.includes('telegram') || lower.includes('group') || lower.includes('data'))
-    return json({ worker: '📱 Telegram', icon: '📱', response: 'Telegram group ka saara data website par hai! Messages, photos, videos, documents sab browse kar sakte ho. Catalog page par jaao! 📂' });
-
-  if (lower.includes('status') || lower.includes('health'))
-    return json({ worker: '⚙️ Status', icon: '⚙️', response: 'Saare systems online hain! Workers, KV, D1, Cron sab active hai. Workers page par detailed status dekh sakte ho. ✅' });
-
-  if (lower.includes('search') || lower.includes('dhundh') || lower.includes('khoj'))
-    return json({ worker: '🔍 Search', icon: '🔍', response: 'Search page par movies, books, aur Telegram data sab ek saath search kar sakte ho. Koi bhi keyword dalo! 🎯' });
-
-  // Default — try Cloudflare AI
+  // 2) Cloudflare Workers AI binding (if configured in dashboard)
   if (env.AI) {
     try {
       const resp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
@@ -649,15 +855,13 @@ async function handleChat(request, env) {
         ],
         max_tokens: 300,
       });
-      return json({ worker: '🤖 Main AI', icon: '🤖', response: resp.response || resp });
+      const text = resp.response || resp;
+      if (text) return json({ worker: '🤖 Main AI', icon: '🤖', response: String(text), model: '@cf/meta/llama-3.1-8b-instruct' });
     } catch (e) {}
   }
 
-  // Fallback
-  return json({
-    worker: '🤖 Main AI', icon: '🤖',
-    response: `Bhai "${message}" ke baare mein poocha hai! 🤔\n\nMain NJStream ka AI hun. Ye cheezein kar sakta hun:\n\n📺 Live TV — Hindi channels free\n🎬 Movies — TMDB se Hindi/English\n📚 Books — Open Library se free\n📱 Telegram — Group data browse\n🔍 Search — Sab kuch ek saath\n\nKuch specific poocho! 😊`,
-  });
+  // 3) Smart routing fallback
+  return json(smartFallback(message));
 }
 
 // ============================================================
@@ -732,7 +936,7 @@ async function handleStatus(env) {
     } catch (e) {}
   }
 
-  return json({ status: 'ok', service: 'NJStream', version: '5.0.0', services });
+  return json({ status: 'ok', service: 'NJStream', version: '6.0.0', services });
 }
 
 // ============================================================
@@ -758,11 +962,11 @@ async function runScheduledSync(env) {
 // FRONTEND — HTML
 // ============================================================
 const INDEX_HTML = `<!DOCTYPE html>
-<html lang="hi">
+<html lang="hi" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NJStream — Live TV, Movies, Books, AI</title>
+<title>NJStream — Live TV, Telegram, Movies, AI</title>
 <meta name="description" content="NJStream — Free Live TV, Movies, Books, Telegram data, AI. Powered by Cloudflare.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎬</text></svg>">
 <link rel="stylesheet" href="/css/style.css">
@@ -770,13 +974,17 @@ const INDEX_HTML = `<!DOCTYPE html>
 </head>
 <body>
 
+<!-- AMBIENT BG -->
+<div class="bg-glow g1"></div>
+<div class="bg-glow g2"></div>
+
 <!-- LOADER -->
 <div class="loader" id="loader">
   <div class="ld-box">
     <div class="ld-logo">🎬</div>
     <div class="ld-name">NJ<span>Stream</span></div>
     <div class="ld-bar"><div class="ld-fill"></div></div>
-    <div class="ld-sub">Initializing services...</div>
+    <div class="ld-sub">Starting services…</div>
   </div>
 </div>
 
@@ -788,16 +996,17 @@ const INDEX_HTML = `<!DOCTYPE html>
     <div class="side-head">
       <div class="logo">🎬</div>
       <div class="brand">NJ<span>Stream</span></div>
+      <button class="icon-btn" data-theme-toggle id="themeBtn" title="Theme">☀️</button>
     </div>
     <div class="nav-list">
-      <button class="nav-btn active" data-page="home" onclick="N.go('home')"><span>🏠</span>Home</button>
-      <button class="nav-btn" data-page="tv" onclick="N.go('tv')"><span>📺</span>Live TV</button>
-      <button class="nav-btn" data-page="tg" onclick="N.go('tg')"><span>📱</span>Telegram</button>
-      <button class="nav-btn" data-page="movies" onclick="N.go('movies')"><span>🎬</span>Movies</button>
-      <button class="nav-btn" data-page="books" onclick="N.go('books')"><span>📚</span>Books</button>
-      <button class="nav-btn" data-page="search" onclick="N.go('search')"><span>🔍</span>Search</button>
-      <button class="nav-btn" data-page="ai" onclick="N.go('ai')"><span>🤖</span>AI Chat</button>
-      <button class="nav-btn" data-page="catalog" onclick="N.go('catalog')"><span>📁</span>Catalog</button>
+      <button class="nav-btn" data-nav="home"><span>🏠</span>Home</button>
+      <button class="nav-btn" data-nav="tv"><span>📺</span>Live TV</button>
+      <button class="nav-btn" data-nav="tg"><span>📱</span>Telegram</button>
+      <button class="nav-btn" data-nav="movies"><span>🎬</span>Movies</button>
+      <button class="nav-btn" data-nav="books"><span>📚</span>Books</button>
+      <button class="nav-btn" data-nav="search"><span>🔍</span>Search</button>
+      <button class="nav-btn" data-nav="ai"><span>🤖</span>AI Chat</button>
+      <button class="nav-btn" data-nav="catalog"><span>📁</span>Catalog</button>
     </div>
     <div class="side-status"><div class="dot green"></div> All Systems Live</div>
   </nav>
@@ -806,24 +1015,24 @@ const INDEX_HTML = `<!DOCTYPE html>
   <main class="main" id="main">
 
     <!-- HOME -->
-    <section class="page active" id="pg-home">
+    <section class="page" id="pg-home">
       <div class="page-head">
-        <h1>🎬 NJStream</h1>
+        <h1 class="grad-text">NJStream</h1>
         <p>Live TV • Movies • Books • Telegram • AI — Sab Kuch Free</p>
       </div>
       <div class="stats-grid" id="homeStats">
-        <div class="stat-card"><div class="stat-icon">📺</div><div class="stat-val" id="stTV">...</div><div class="stat-label">Live TV</div></div>
-        <div class="stat-card"><div class="stat-icon">📱</div><div class="stat-val" id="stTG">...</div><div class="stat-label">TG Messages</div></div>
-        <div class="stat-card"><div class="stat-icon">🎬</div><div class="stat-val" id="stMovies">...</div><div class="stat-label">Movies</div></div>
+        <div class="stat-card"><div class="stat-icon">📺</div><div class="stat-val" id="stTV">…</div><div class="stat-label">Live TV (working)</div></div>
+        <div class="stat-card"><div class="stat-icon">📱</div><div class="stat-val" id="stTG">…</div><div class="stat-label">TG Messages</div></div>
+        <div class="stat-card"><div class="stat-icon">🎬</div><div class="stat-val" id="stMovies">…</div><div class="stat-label">Movies</div></div>
         <div class="stat-card"><div class="stat-icon">🤖</div><div class="stat-val">Active</div><div class="stat-label">AI Online</div></div>
       </div>
       <div class="quick-grid">
-        <button class="qcard" onclick="N.go('tv')"><span class="qi">📺</span><span>Live TV</span><span class="qd">Hindi channels free</span></button>
-        <button class="qcard" onclick="N.go('tg')"><span class="qi">📱</span><span>Telegram Data</span><span class="qd">Browse group messages</span></button>
-        <button class="qcard" onclick="N.go('movies')"><span class="qi">🎬</span><span>Movies</span><span class="qd">TMDB Hindi & English</span></button>
-        <button class="qcard" onclick="N.go('books')"><span class="qi">📚</span><span>Books</span><span class="qd">Open Library free</span></button>
-        <button class="qcard" onclick="N.go('ai')"><span class="qi">🤖</span><span>AI Chat</span><span class="qd">Ask anything</span></button>
-        <button class="qcard" onclick="N.go('search')"><span class="qi">🔍</span><span>Search</span><span class="qd">All sources at once</span></button>
+        <button class="qcard" data-nav="tv"><span class="qi">📺</span><span>Live TV</span><span class="qd">Hindi channels free</span></button>
+        <button class="qcard" data-nav="tg"><span class="qi">📱</span><span>Telegram Data</span><span class="qd">Browse group messages</span></button>
+        <button class="qcard" data-nav="movies"><span class="qi">🎬</span><span>Movies</span><span class="qd">Hindi &amp; English</span></button>
+        <button class="qcard" data-nav="books"><span class="qi">📚</span><span>Books</span><span class="qd">Open Library free</span></button>
+        <button class="qcard" data-nav="ai"><span class="qi">🤖</span><span>AI Chat</span><span class="qd">Ask anything</span></button>
+        <button class="qcard" data-nav="search"><span class="qi">🔍</span><span>Search</span><span class="qd">All sources at once</span></button>
       </div>
       <div class="services-section">
         <h2>⚡ Live Services</h2>
@@ -840,758 +1049,949 @@ const INDEX_HTML = `<!DOCTYPE html>
 
     <!-- LIVE TV -->
     <section class="page" id="pg-tv">
-      <div class="page-head"><h1>📺 Live TV</h1><p>Free IPTV — Hindi priority | <span id="tvTotal">0</span> channels</p></div>
-      <div class="tv-player-wrap">
-        <div class="tv-player-box" id="tvPlayerBox">
-          <div class="tv-placeholder" id="tvPlaceholder"><span>📺</span><p>Channel select karo</p></div>
-          <video id="tvVideo" controls style="display:none;width:100%;height:100%"></video>
+      <div class="page-head"><h1 class="grad-text">📺 Live TV</h1><p>Free IPTV — Hindi priority · <b id="tvTotal">0</b> channels · <b class="green" id="tvWorking">0</b> verified working</p></div>
+      <div class="tv-stage">
+        <div class="tv-frame">
+          <div class="tv-placeholder" id="tvPlaceholder"><span>📺</span><p>Channel select karo</p><p class="ph-sub">Working ✅ channels pe tap karo</p></div>
+          <video id="tvVideo" controls playsinline preload="metadata" style="display:none"></video>
         </div>
-        <div class="tv-bar" id="tvBar" style="display:none"><span class="live-dot">● LIVE</span><span id="tvPlaying">—</span></div>
+        <div class="tv-bar" id="tvBar" style="display:none">
+          <span class="live-pill"><span class="live-dot"></span>LIVE</span>
+          <span id="tvPlaying">—</span>
+          <span class="eq"><i></i><i></i><i></i></span>
+        </div>
       </div>
-      <div class="filter-bar" id="tvFilters"></div>
-      <div class="search-bar"><input id="tvSearch" placeholder="Channel search karo..." oninput="N.filterTV()"></div>
-      <div class="tv-grid" id="tvGrid"><div class="loading">📺 Loading channels...</div></div>
+      <div class="chip-wrap" id="tvFilters"><div class="loading">Loading categories…</div></div>
+      <div class="search-bar"><input id="tvSearch" placeholder="Channel search karo…"><button data-tvsearch>🔍</button></div>
+      <div class="tv-grid" id="tvGrid"><div class="loading">📺 Loading channels…</div></div>
     </section>
 
     <!-- TELEGRAM -->
     <section class="page" id="pg-tg">
-      <div class="page-head"><h1>📱 Telegram Group Data</h1><p>All messages, photos, videos, files — readable & downloadable</p></div>
+      <div class="page-head"><h1 class="grad-text">📱 Telegram Group Data</h1><p>Messages, photos, videos, files — readable, downloadable &amp; watchable</p></div>
       <div class="tg-stats" id="tgStats"></div>
       <div class="tg-sync-row">
-        <button class="fbtn sync-btn" onclick="N.syncTG(this)">🔄 Sync Group Data</button>
+        <button class="sync-btn" data-sync>🔄 Sync Group Data</button>
         <span class="sync-hint" id="tgSyncHint">Group se latest messages fetch karo</span>
       </div>
-      <div class="filter-bar">
-        <button class="fbtn active" onclick="N.filterTG('all',this)">All</button>
-        <button class="fbtn" onclick="N.filterTG('photo',this)">📷 Photos</button>
-        <button class="fbtn" onclick="N.filterTG('video',this)">🎥 Videos</button>
-        <button class="fbtn" onclick="N.filterTG('document',this)">📄 Documents</button>
-        <button class="fbtn" onclick="N.filterTG('audio',this)">🎵 Audio</button>
-        <button class="fbtn" onclick="N.filterTG('text',this)">💬 Text</button>
+      <div class="chip-wrap">
+        <button class="chip active" data-tgtype="all">All</button>
+        <button class="chip" data-tgtype="video">🎥 Videos</button>
+        <button class="chip" data-tgtype="photo">📷 Photos</button>
+        <button class="chip" data-tgtype="document">📄 Documents</button>
+        <button class="chip" data-tgtype="audio">🎵 Audio</button>
+        <button class="chip" data-tgtype="text">💬 Text</button>
       </div>
-      <div class="search-bar"><input id="tgSearch" placeholder="Search messages..." oninput="N.filterTGMessages()"></div>
-      <div id="tgMessages" class="tg-list"><div class="loading">Loading Telegram data...</div></div>
+      <div class="search-bar"><input id="tgSearch" placeholder="Search messages…"><button data-tgsearch>🔍</button></div>
+      <div id="tgMessages" class="tg-list"><div class="loading">Loading Telegram data…</div></div>
     </section>
 
     <!-- MOVIES -->
     <section class="page" id="pg-movies">
-      <div class="page-head"><h1>🎬 Movies</h1><p>TMDB — Hindi & English</p></div>
-      <div class="filter-bar">
-        <button class="fbtn active" onclick="N.loadMovies('popular',this)">🔥 Popular</button>
-        <button class="fbtn" onclick="N.loadMovies('top_rated',this)">⭐ Top Rated</button>
-        <button class="fbtn" onclick="N.loadMovies('now_playing',this)">🎥 Now Playing</button>
-        <button class="fbtn" onclick="N.loadMovies('upcoming',this)">🗓️ Upcoming</button>
+      <div class="page-head"><h1 class="grad-text">🎬 Movies</h1><p>TMDB — Hindi &amp; English</p></div>
+      <div class="chip-wrap">
+        <button class="chip active" data-mtype="popular">🔥 Popular</button>
+        <button class="chip" data-mtype="top_rated">⭐ Top Rated</button>
+        <button class="chip" data-mtype="now_playing">🎥 Now Playing</button>
+        <button class="chip" data-mtype="upcoming">🗓️ Upcoming</button>
       </div>
-      <div id="moviesGrid" class="media-grid"><div class="loading">Loading movies...</div></div>
+      <div id="moviesGrid" class="media-grid"><div class="loading">Loading movies…</div></div>
     </section>
 
     <!-- BOOKS -->
     <section class="page" id="pg-books">
-      <div class="page-head"><h1>📚 Books</h1><p>Open Library — Free Reading</p></div>
-      <div class="search-bar"><input id="bookSearch" placeholder="Search books..." onkeydown="if(event.key==='Enter')N.loadBooks()"><button onclick="N.loadBooks()">Search</button></div>
-      <div class="filter-bar">
-        <button class="fbtn active" onclick="N.loadBooks('hindi',this)">🇮🇳 Hindi</button>
-        <button class="fbtn" onclick="N.loadBooks('famous',this)">📖 Famous</button>
-        <button class="fbtn" onclick="N.loadBooks('science',this)">🔬 Science</button>
-        <button class="fbtn" onclick="N.loadBooks('fiction',this)">🎭 Fiction</button>
+      <div class="page-head"><h1 class="grad-text">📚 Books</h1><p>Open Library — Free Reading</p></div>
+      <div class="search-bar"><input id="bookSearch" placeholder="Search books…"><button data-bsearch>🔍</button></div>
+      <div class="chip-wrap">
+        <button class="chip active" data-btype="hindi">🇮🇳 Hindi</button>
+        <button class="chip" data-btype="famous">📖 Famous</button>
+        <button class="chip" data-btype="science">🔬 Science</button>
+        <button class="chip" data-btype="fiction">🎭 Fiction</button>
       </div>
-      <div id="booksGrid" class="media-grid"><div class="loading">Loading books...</div></div>
+      <div id="booksGrid" class="media-grid"><div class="loading">Loading books…</div></div>
     </section>
 
     <!-- SEARCH -->
     <section class="page" id="pg-search">
-      <div class="page-head"><h1>🔍 Search Everything</h1><p>Movies + Books + Telegram — ek saath</p></div>
-      <div class="search-bar big"><input id="searchInput" placeholder="Movie, book, ya kuchh bhi search karo..." onkeydown="if(event.key==='Enter')N.doSearch()"><button onclick="N.doSearch()">🔍 Search</button></div>
+      <div class="page-head"><h1 class="grad-text">🔍 Search Everything</h1><p>Movies + Books + Telegram — ek saath</p></div>
+      <div class="search-bar big"><input id="searchInput" placeholder="Movie, book, ya kuchh bhi search karo…"><button data-search>🔍 Search</button></div>
       <div id="searchResults" class="search-results"></div>
     </section>
 
     <!-- AI CHAT -->
     <section class="page" id="pg-ai">
-      <div class="page-head"><h1>🤖 AI Chat</h1><p>Main AI + Worker AIs</p></div>
+      <div class="page-head"><h1 class="grad-text">🤖 AI Chat</h1><p>Main AI + Worker AIs · OpenRouter powered</p></div>
       <div class="chat-box">
         <div class="chat-messages" id="chatMsgs">
           <div class="msg ai"><div class="msg-label">🤖 NJStream AI</div><p>Welcome bhai! Kuchh bhi poocho — movies, books, live TV, Telegram data, ya koi bhi sawaal 🎉</p>
             <div class="quick-asks">
-              <button onclick="N.chat('Live TV dikhao')">📺 Live TV</button>
-              <button onclick="N.chat('Movies dikhao')">🎬 Movies</button>
-              <button onclick="N.chat('Books dikhao')">📚 Books</button>
-              <button onclick="N.chat('Telegram data')">📱 Telegram</button>
-              <button onclick="N.chat('Status batao')">⚙️ Status</button>
+              <button data-ask="Live TV dikhao">📺 Live TV</button>
+              <button data-ask="Movies dikhao">🎬 Movies</button>
+              <button data-ask="Books dikhao">📚 Books</button>
+              <button data-ask="Telegram data dikhao">📱 Telegram</button>
+              <button data-ask="Status batao">⚙️ Status</button>
             </div>
           </div>
         </div>
         <div class="chat-input">
-          <input id="chatIn" placeholder="Message type karo..." onkeydown="if(event.key==='Enter'){N.chat(this.value);this.value='';}">
-          <button onclick="N.chat(document.getElementById('chatIn').value);document.getElementById('chatIn').value='';">Send ⚡</button>
+          <input id="chatIn" placeholder="Message type karo…">
+          <button data-send>Send ⚡</button>
         </div>
       </div>
     </section>
 
     <!-- CATALOG -->
     <section class="page" id="pg-catalog">
-      <div class="page-head"><h1>📁 My Catalog</h1><p>D1 Database — Apna content</p></div>
+      <div class="page-head"><h1 class="grad-text">📁 My Catalog</h1><p>D1 Database — Apna content</p></div>
       <div class="add-form">
-        <input id="catTitle" placeholder="Title...">
+        <input id="catTitle" placeholder="Title…">
         <select id="catType"><option value="movie">🎬 Movie</option><option value="book">📚 Book</option><option value="series">📺 Series</option></select>
-        <input id="catDesc" placeholder="Description...">
-        <button onclick="N.addToCatalog()">➕ Add</button>
+        <input id="catDesc" placeholder="Description…">
+        <button data-addcat>➕ Add</button>
       </div>
-      <div id="catalogList" class="media-grid"><div class="loading">Loading...</div></div>
+      <div id="catalogList" class="media-grid"><div class="loading">Loading…</div></div>
     </section>
 
   </main>
 </div>
 
 <!-- MOBILE TOGGLE -->
-<button class="mobile-toggle" onclick="document.getElementById('side').classList.toggle('open')">☰</button>
+<button class="mobile-toggle" id="mtoggle">☰</button>
 
 <script src="/js/app.js"></script>
 </body>
-</html>`;
+</html>
+`;
 
 // ============================================================
 // FRONTEND — CSS
 // ============================================================
-const STYLE_CSS = `
-:root{--bg:#09090b;--card:#18181b;--card2:#27272a;--border:#3f3f46;--accent:#22d3ee;--accent2:#a855f7;--green:#22c55e;--red:#ef4444;--text:#fafafa;--text2:#a1a1aa;--radius:12px}
+const STYLE_CSS = `:root{
+  --bg:#05060a;--bg2:#0b0e18;
+  --card:rgba(255,255,255,.05);--card-solid:#10131f;--card2:rgba(255,255,255,.08);
+  --border:rgba(255,255,255,.09);--border2:rgba(255,255,255,.18);
+  --text:#f4f6ff;--text2:#96a0bb;
+  --accent:#22d3ee;--accent2:#a78bfa;--green:#34d399;--amber:#fbbf24;--red:#f87171;
+  --grad:linear-gradient(135deg,#22d3ee,#a78bfa);
+  --shadow:0 12px 40px rgba(0,0,0,.45);
+  --glow:0 0 24px rgba(34,211,238,.25);
+  --radius:16px;
+}
+[data-theme="light"]{
+  --bg:#eef1f8;--bg2:#ffffff;
+  --card:#ffffff;--card-solid:#ffffff;--card2:#f1f4fb;
+  --border:rgba(15,23,42,.10);--border2:rgba(15,23,42,.22);
+  --text:#0f172a;--text2:#5a6478;
+  --shadow:0 10px 30px rgba(15,23,42,.10);
+  --glow:0 0 20px rgba(34,211,238,.35);
+}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}
+html{scroll-behavior:smooth}
+body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden;transition:background .3s,color .3s}
+button{font-family:inherit}
+img{max-width:100%}
+
+/* Ambient glow */
+.bg-glow{position:fixed;border-radius:50%;filter:blur(90px);opacity:.5;pointer-events:none;z-index:0}
+.g1{width:520px;height:520px;background:rgba(34,211,238,.22);top:-160px;left:-120px}
+.g2{width:520px;height:520px;background:rgba(167,139,250,.18);bottom:-180px;right:-120px}
+[data-theme="light"] .g1{background:rgba(34,211,238,.35)}
+[data-theme="light"] .g2{background:rgba(167,139,250,.30)}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:44px 44px;pointer-events:none;z-index:0}
 
 /* Loader */
-.loader{position:fixed;inset:0;z-index:999;background:var(--bg);display:flex;align-items:center;justify-content:center}
-.loader.hide{opacity:0;pointer-events:none;transition:opacity .4s}
+.loader{position:fixed;inset:0;z-index:999;background:var(--bg);display:flex;align-items:center;justify-content:center;transition:opacity .45s}
+.loader.hide{opacity:0;pointer-events:none}
 .ld-box{text-align:center}
-.ld-logo{font-size:60px;animation:pulse 1s infinite}
-.ld-name{font-size:26px;font-weight:800;margin:10px 0;color:var(--accent)}.ld-name span{color:var(--accent2)}
-.ld-bar{width:200px;height:3px;background:var(--card2);border-radius:3px;overflow:hidden;margin:10px auto}
-.ld-fill{height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));animation:fillB 2s forwards}
-.ld-sub{color:var(--text2);font-size:12px}
-@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+.ld-logo{font-size:62px;animation:pulse 1.1s ease-in-out infinite;filter:drop-shadow(0 0 18px rgba(34,211,238,.5))}
+.ld-name{font-size:27px;font-weight:800;margin:12px 0;background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.ld-name span{-webkit-text-fill-color:var(--accent2)}
+.ld-bar{width:210px;height:4px;background:var(--card2);border-radius:4px;overflow:hidden;margin:12px auto;border:1px solid var(--border)}
+.ld-fill{height:100%;width:0;background:var(--grad);animation:fillB 1.6s ease forwards}
+.ld-sub{color:var(--text2);font-size:12px;letter-spacing:.3px}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.09)}}
 @keyframes fillB{to{width:100%}}
 
 /* Layout */
-.app{display:flex;min-height:100vh;opacity:0;transition:opacity .5s}
+.app{display:flex;min-height:100vh;opacity:0;transition:opacity .5s;position:relative;z-index:1}
 .app.vis{opacity:1}
 
 /* Sidebar */
-.side{width:220px;background:var(--card);border-right:1px solid var(--border);padding:16px;display:flex;flex-direction:column;position:fixed;top:0;bottom:0;z-index:50}
-.side-head{display:flex;align-items:center;gap:8px;margin-bottom:20px}
-.logo{font-size:24px}.brand{font-size:18px;font-weight:800;color:var(--accent)}.brand span{color:var(--accent2)}
-.nav-list{flex:1;display:flex;flex-direction:column;gap:2px}
-.nav-btn{display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;border:none;border-radius:8px;background:transparent;color:var(--text2);font-size:13px;cursor:pointer;text-align:left;transition:.15s}
-.nav-btn:hover{background:var(--card2);color:var(--text)}
-.nav-btn.active{background:linear-gradient(135deg,rgba(34,211,238,.12),rgba(168,85,247,.12));color:var(--accent);font-weight:600}
-.nav-btn span{width:18px;text-align:center;font-size:15px}
-.side-status{display:flex;align-items:center;gap:6px;padding:10px;background:var(--card2);border-radius:8px;font-size:11px;color:var(--green)}
-.dot{width:7px;height:7px;border-radius:50%;display:inline-block}.green{background:var(--green);animation:blink 2s infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+.side{width:228px;background:var(--card);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-right:1px solid var(--border);padding:16px;display:flex;flex-direction:column;position:fixed;top:0;bottom:0;z-index:50}
+.side-head{display:flex;align-items:center;gap:8px;margin-bottom:22px}
+.logo{font-size:26px;filter:drop-shadow(0 0 10px rgba(34,211,238,.4))}
+.brand{font-size:19px;font-weight:800;background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;flex:1}
+.brand span{-webkit-text-fill-color:var(--accent2)}
+.icon-btn{width:34px;height:34px;border-radius:10px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:16px;cursor:pointer;transition:.2s}
+.icon-btn:hover{border-color:var(--accent);box-shadow:var(--glow)}
+.nav-list{flex:1;display:flex;flex-direction:column;gap:3px}
+.nav-btn{display:flex;align-items:center;gap:10px;width:100%;padding:11px 12px;border:none;border-radius:11px;background:transparent;color:var(--text2);font-size:13.5px;cursor:pointer;text-align:left;transition:.18s;position:relative}
+.nav-btn:hover{background:var(--card2);color:var(--text);transform:translateX(2px)}
+.nav-btn.active{background:linear-gradient(135deg,rgba(34,211,238,.14),rgba(167,139,250,.14));border:1px solid var(--border);color:var(--accent);font-weight:700;transform:none}
+.nav-btn.active::before{content:'';position:absolute;left:-1px;top:20%;height:60%;width:3px;border-radius:3px;background:var(--grad)}
+.nav-btn span{width:20px;text-align:center;font-size:16px}
+.side-status{display:flex;align-items:center;gap:7px;padding:11px;background:var(--card2);border:1px solid var(--border);border-radius:11px;font-size:11.5px;color:var(--green);font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}.green{background:var(--green);animation:blink 1.8s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
 
 /* Main */
-.main{margin-left:220px;flex:1;padding:24px;min-height:100vh}
-.page{display:none}.page.active{display:block}
+.main{margin-left:228px;flex:1;padding:26px 26px 40px;min-height:100vh}
+.page{display:none;animation:fadeUp .35s ease}
+.page.active{display:block}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 
 /* Page head */
-.page-head{margin-bottom:24px}.page-head h1{font-size:26px;font-weight:800}.page-head p{color:var(--text2);margin-top:4px;font-size:13px}
+.page-head{margin-bottom:22px}
+.page-head h1{font-size:27px;font-weight:800;letter-spacing:-.3px}
+.grad-text{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.page-head p{color:var(--text2);margin-top:5px;font-size:13px}
+.page-head b{color:var(--text)}
+.page-head .green{color:var(--green);animation:none}
 
 /* Stats */
-.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
-.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center}
-.stat-icon{font-size:28px;margin-bottom:6px}.stat-val{font-size:22px;font-weight:800;color:var(--accent)}.stat-label{font-size:11px;color:var(--text2);margin-top:4px}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.stat-card{background:var(--card);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:var(--radius);padding:18px 12px;text-align:center;transition:.25s;position:relative;overflow:hidden}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--grad);opacity:0;transition:.25s}
+.stat-card:hover{transform:translateY(-4px);border-color:var(--border2);box-shadow:var(--shadow)}
+.stat-card:hover::before{opacity:1}
+.stat-icon{font-size:30px;margin-bottom:8px}
+.stat-val{font-size:23px;font-weight:800;background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.stat-label{font-size:11.5px;color:var(--text2);margin-top:5px}
 
 /* Quick links */
-.quick-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
-.qcard{display:flex;flex-direction:column;align-items:center;gap:4px;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:.2s;text-align:center}
-.qcard:hover{border-color:var(--accent);transform:translateY(-2px)}
-.qi{font-size:32px}.qd{font-size:11px;color:var(--text2);margin-top:4px}
+.quick-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px}
+.qcard{display:flex;flex-direction:column;align-items:center;gap:5px;padding:22px 12px;background:var(--card);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:.25s;text-align:center;color:var(--text)}
+.qcard:hover{border-color:var(--accent);transform:translateY(-5px);box-shadow:var(--shadow)}
+.qi{font-size:34px;filter:drop-shadow(0 0 12px rgba(34,211,238,.35))}
+.qd{font-size:11.5px;color:var(--text2);margin-top:4px}
 
 /* Services */
-.services-section h2{font-size:18px;margin-bottom:12px}
-.svc-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.svc{display:flex;gap:12px;padding:14px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius)}
-.svc-icon{font-size:24px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:var(--card2);border-radius:10px;flex-shrink:0}
-.svc-info h4{font-size:13px;font-weight:600}.svc-info p{font-size:11px;color:var(--text2)}
-.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}.badge.live{background:rgba(34,197,94,.15);color:var(--green)}
+.services-section h2{font-size:17px;margin-bottom:14px}
+.svc-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.svc{display:flex;gap:12px;padding:15px;background:var(--card);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:var(--radius);transition:.2s}
+.svc:hover{border-color:var(--border2);transform:translateY(-2px)}
+.svc-icon{font-size:24px;width:42px;height:42px;display:flex;align-items:center;justify-content:center;background:var(--card2);border:1px solid var(--border);border-radius:11px;flex-shrink:0}
+.svc-info h4{font-size:13px;font-weight:700}.svc-info p{font-size:11px;color:var(--text2);margin-top:2px}
+.badge{display:inline-block;padding:3px 9px;border-radius:12px;font-size:10px;font-weight:700;margin-top:6px}
+.badge.live{background:rgba(52,211,153,.14);color:var(--green)}
 
-/* Filters */
-.filter-bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
-.fbtn{padding:6px 14px;border:1px solid var(--border);border-radius:20px;background:var(--card);color:var(--text2);font-size:12px;cursor:pointer;transition:.15s}
-.fbtn:hover{border-color:var(--accent);color:var(--text)}.fbtn.active{background:var(--accent);color:#000;border-color:var(--accent);font-weight:600}
+/* Chips */
+.chip-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.chip{padding:7px 14px;border:1px solid var(--border);border-radius:22px;background:var(--card);color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;transition:.18s}
+.chip:hover{border-color:var(--accent);color:var(--text);transform:translateY(-1px)}
+.chip.active{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(34,211,238,.3)}
+.chip .chip-w{opacity:.85;font-weight:700}
+.chip.toggle.on{border-color:var(--green);color:var(--green);background:rgba(52,211,153,.10)}
+.chip.toggle:not(.on){opacity:.75}
 
 /* Search */
-.search-bar{display:flex;gap:8px;margin-bottom:16px}
-.search-bar input,.search-bar button{padding:10px 14px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none}
-.search-bar input{flex:1}.search-bar input:focus{border-color:var(--accent)}
-.search-bar button{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff;font-weight:600;cursor:pointer;white-space:nowrap}
-.search-bar.big input{font-size:16px;padding:14px}
+.search-bar{display:flex;gap:9px;margin-bottom:18px}
+.search-bar input,.search-bar button{padding:11px 15px;background:var(--card);backdrop-filter:blur(10px);border:1px solid var(--border);border-radius:12px;color:var(--text);font-size:13.5px;outline:none;transition:.2s}
+.search-bar input{flex:1;min-width:0}
+.search-bar input:focus{border-color:var(--accent);box-shadow:var(--glow)}
+.search-bar button{background:var(--grad);border-color:transparent;color:#fff;font-weight:700;cursor:pointer}
+.search-bar button:hover{filter:brightness(1.1);transform:translateY(-1px)}
+.search-bar.big input{padding:14px 17px;font-size:15px}
 
-/* Media grid */
-.media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
-.media-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:.2s}
-.media-card:hover{border-color:var(--accent);transform:translateY(-2px)}
-.media-card img{width:100%;height:240px;object-fit:cover;background:var(--card2)}
-.media-card .info{padding:10px}.media-card .info h4{font-size:13px;font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.media-card .info .meta{font-size:11px;color:var(--text2);display:flex;gap:8px}
-.media-card .info .read-link{display:inline-block;margin-top:6px;font-size:12px;color:var(--accent);text-decoration:none}
+/* TV */
+.tv-stage{margin-bottom:18px}
+.tv-frame{position:relative;width:100%;aspect-ratio:16/9;background:#000;border:1px solid var(--border);border-radius:18px;overflow:hidden;box-shadow:var(--shadow),0 0 0 1px var(--border)}
+.tv-frame::after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,transparent 60%,rgba(0,0,0,.25))}
+.tv-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--text2);font-size:14.5px;text-align:center;padding:20px}
+.tv-placeholder span{font-size:56px;filter:drop-shadow(0 0 16px rgba(34,211,238,.5));animation:pulse 2s infinite}
+.ph-sub{font-size:12px;color:var(--text2);opacity:.75}
+#tvVideo{width:100%;height:100%;object-fit:contain;background:#000;display:block}
+.tv-bar{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1px solid var(--border);border-radius:14px;margin-top:10px;font-size:13.5px;font-weight:600}
+.tv-bar .live-pill{display:flex;align-items:center;gap:7px;background:rgba(239,68,68,.14);color:var(--red);padding:5px 12px;border-radius:20px;font-size:11px;font-weight:800;letter-spacing:.6px}
+.live-dot{width:9px;height:9px;border-radius:50%;background:var(--red);animation:blink 1.2s infinite}
+.eq{display:flex;align-items:flex-end;gap:2px;margin-left:auto;height:16px}
+.eq i{width:3px;background:var(--grad);border-radius:2px;animation:eq 1s ease-in-out infinite}
+.eq i:nth-child(1){height:8px;animation-delay:0s}
+.eq i:nth-child(2){height:16px;animation-delay:.15s}
+.eq i:nth-child(3){height:11px;animation-delay:.3s}
+@keyframes eq{0%,100%{transform:scaleY(.5)}50%{transform:scaleY(1.1)}}
 
-/* Search results */
-.search-results{display:flex;flex-direction:column;gap:10px}
-.sr-card{display:flex;gap:14px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;transition:.2s}
-.sr-card:hover{border-color:var(--accent)}
-.sr-img{width:70px;height:100px;object-fit:cover;border-radius:8px;background:var(--card2)}
-.sr-info{flex:1}.sr-info h3{font-size:14px;font-weight:600;margin-bottom:4px}
-.sr-meta{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
-.sr-tag{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}
-.sr-tag.movie{background:rgba(34,211,238,.15);color:var(--accent)}
-.sr-tag.book{background:rgba(168,85,247,.15);color:var(--accent2)}
-.sr-tag.tg{background:rgba(34,197,94,.15);color:var(--green)}
-
-/* TV Player */
-.tv-player-wrap{margin-bottom:16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
-.tv-player-box{width:100%;height:380px;background:#000;display:flex;align-items:center;justify-content:center}
-.tv-placeholder{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--text2)}.tv-placeholder span{font-size:56px}
-.tv-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--card2);border-top:1px solid var(--border)}
-.live-dot{color:var(--red);font-weight:700;font-size:12px;animation:blink 1.5s infinite}
-.tv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
-.tv-card{display:flex;align-items:center;gap:10px;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:.2s}
-.tv-card:hover{border-color:var(--accent);transform:translateY(-1px)}
-.tv-card-img{width:42px;height:42px;border-radius:8px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:20px;overflow:hidden;flex-shrink:0}
-.tv-card-img img{width:100%;height:100%;object-fit:cover}
-.tv-card-info{flex:1;min-width:0}
-.tv-card-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tv-card-group{font-size:10px;color:var(--text2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* TV grid */
+.tv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+.tv-card{background:var(--card);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:14px;overflow:hidden;cursor:pointer;transition:.22s;animation:fadeUp .4s both;animation-delay:calc(var(--i)*.03s)}
+.tv-card:hover{transform:translateY(-5px);border-color:var(--accent);box-shadow:var(--shadow),var(--glow)}
+.tv-card.dead{opacity:.62}
+.tv-card.dead:hover{opacity:1;border-color:var(--amber)}
+.tv-card-logo{height:104px;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,rgba(34,211,238,.10),rgba(167,139,250,.12));font-size:42px;position:relative}
+.tv-card-logo img{width:100%;height:100%;object-fit:cover}
+.tv-card-logo.noimg::after{content:'';position:absolute;inset:0;border-bottom:1px solid var(--border);background:radial-gradient(circle at 50% 120%,rgba(34,211,238,.15),transparent 60%)}
+.tv-card-info{padding:11px 12px 13px}
+.tv-card-name{font-size:13px;font-weight:700;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:35px}
+.tv-card-meta{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:8px}
+.ch-badge{padding:2px 8px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:.3px}
+.ch-badge.ok{background:rgba(52,211,153,.15);color:var(--green)}
+.ch-badge.warn{background:rgba(251,191,36,.15);color:var(--amber)}
+.ch-badge.hd{background:rgba(34,211,238,.15);color:var(--accent)}
+.ch-badge.hindi{background:rgba(167,139,250,.15);color:var(--accent2);padding:2px 5px}
+.ch-group{font-size:10.5px;color:var(--text2);margin-left:auto}
 
 /* Telegram */
-.tg-stats{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}
-.tg-stat{padding:10px 16px;background:var(--card);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:6px;font-size:13px}
-.tg-stat .num{font-weight:700;color:var(--accent)}
-.tg-list{display:flex;flex-direction:column;gap:8px}
-.tg-msg{padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);transition:.15s}
-.tg-msg:hover{border-color:var(--accent)}
-.tg-msg-header{display:flex;justify-content:space-between;margin-bottom:6px;font-size:11px;color:var(--text2)}
-.tg-msg-from{font-weight:600;color:var(--accent)}
-.tg-msg-text{font-size:13px;line-height:1.5;margin-bottom:6px;word-break:break-word}
-.tg-msg-media{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
-.tg-media-tag{padding:3px 8px;border-radius:6px;font-size:10px;background:var(--card2);color:var(--text2);display:inline-flex;align-items:center;gap:4px}
-.tg-media-tag a{color:var(--accent);text-decoration:none}
+.tg-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px}
+.tg-stat{padding:14px;background:var(--card);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:14px;text-align:center;font-size:12px;color:var(--text2)}
+.tg-stat .num{display:block;font-size:22px;font-weight:800;background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:3px}
+.tg-sync-row{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.sync-btn{background:var(--grad);color:#fff;border:none;padding:10px 18px;border-radius:24px;font-size:12.5px;font-weight:800;cursor:pointer;transition:.2s;box-shadow:0 4px 14px rgba(34,211,238,.25)}
+.sync-btn:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(34,211,238,.4)}
+.sync-btn:disabled{opacity:.6;cursor:wait;transform:none}
+.sync-hint{font-size:11.5px;color:var(--text2)}
+.tg-list{display:flex;flex-direction:column;gap:14px}
+.tg-msg{background:var(--card);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:16px;padding:14px 16px;transition:.2s;animation:fadeUp .35s both}
+.tg-msg:hover{border-color:var(--border2)}
+.tg-msg-header{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11.5px;color:var(--text2);margin-bottom:8px}
+.tg-msg-from{font-weight:700;color:var(--accent)}
+.tg-msg-text{font-size:14px;line-height:1.55;margin-bottom:6px;word-break:break-word}
+.tg-msg-media{margin-top:10px}
+.tg-media-tag{display:inline-block;padding:3px 9px;border-radius:10px;background:var(--card2);border:1px solid var(--border);font-size:10.5px;color:var(--text2);margin:0 5px 5px 0}
+.tg-video-wrap{margin:8px 0;border-radius:12px;overflow:hidden;background:#000}
+.tg-video-wrap video{display:block;width:100%;max-height:360px;background:#000}
+.tg-actions{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
+.tg-fail{margin-top:8px;padding:10px 12px;background:rgba(251,191,36,.10);border:1px solid rgba(251,191,36,.35);border-radius:10px;font-size:12px;color:var(--amber)}
+.tg-fail p{margin-bottom:8px}
+
+/* Media cards */
+.media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:14px}
+.media-card{background:var(--card);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:.22s}
+.media-card:hover{border-color:var(--accent);transform:translateY(-4px);box-shadow:var(--shadow)}
+.media-card img{width:100%;height:210px;object-fit:cover;display:block;background:var(--card2)}
+.media-card .info{padding:12px}
+.media-card .info h4{font-size:13px;font-weight:700;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.media-card .meta{display:flex;gap:8px;margin-top:7px;font-size:11px;color:var(--text2)}
 
 /* Chat */
-.chat-box{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);display:flex;flex-direction:column;height:calc(100vh - 160px)}
-.chat-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
-.msg{max-width:80%;padding:12px 16px;border-radius:12px;font-size:13px;line-height:1.6}
-.msg.ai{background:var(--card2);border:1px solid var(--border);align-self:flex-start}
-.msg.user{background:linear-gradient(135deg,rgba(34,211,238,.15),rgba(168,85,247,.15));align-self:flex-end}
-.msg-label{font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px}
-.quick-asks{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.quick-asks button{padding:5px 10px;background:var(--bg);border:1px solid var(--border);border-radius:14px;font-size:11px;color:var(--text2);cursor:pointer;transition:.15s}
-.quick-asks button:hover{border-color:var(--accent);color:var(--accent)}
-.chat-input{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border)}
-.chat-input input{flex:1;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none}
+.chat-box{display:flex;flex-direction:column;height:min(640px,calc(100vh - 200px));border:1px solid var(--border);border-radius:18px;overflow:hidden;background:var(--card);backdrop-filter:blur(12px);box-shadow:var(--shadow)}
+.chat-messages{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:82%;padding:12px 15px;border-radius:16px;font-size:13.5px;line-height:1.55;animation:fadeUp .3s ease}
+.msg p{white-space:pre-wrap;word-break:break-word}
+.msg-label{font-size:10.5px;font-weight:800;color:var(--text2);margin-bottom:6px;letter-spacing:.3px;text-transform:uppercase}
+.msg.user{align-self:flex-end;background:var(--grad);color:#fff;border-bottom-right-radius:4px}
+.msg.user .msg-label{color:rgba(255,255,255,.8)}
+.msg.ai{align-self:flex-start;background:var(--card2);border:1px solid var(--border);border-bottom-left-radius:4px}
+.typing{display:flex;gap:4px;padding:4px 0}
+.typing i{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:blink 1s infinite}
+.typing i:nth-child(2){animation-delay:.2s}
+.typing i:nth-child(3){animation-delay:.4s}
+.quick-asks{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.quick-asks button{padding:6px 12px;border-radius:16px;border:1px solid var(--border);background:var(--card);color:var(--accent);font-size:11.5px;font-weight:600;cursor:pointer;transition:.15s}
+.quick-asks button:hover{background:var(--grad);color:#fff;border-color:transparent}
+.chat-input{display:flex;gap:9px;padding:13px;border-top:1px solid var(--border);background:var(--card-solid)}
+.chat-input input{flex:1;padding:12px 15px;background:var(--card2);border:1px solid var(--border);border-radius:12px;color:var(--text);font-size:13.5px;outline:none}
 .chat-input input:focus{border-color:var(--accent)}
-.chat-input button{padding:10px 16px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer}
+.chat-input button{background:var(--grad);border:none;border-radius:12px;padding:0 18px;color:#fff;font-weight:800;cursor:pointer;font-size:13px}
 
 /* Catalog */
-.add-form{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-.add-form input,.add-form select{padding:10px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none}
-.add-form input{flex:1;min-width:120px}
-.add-form button{padding:10px 16px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer}
+.add-form{display:flex;gap:9px;margin-bottom:18px;flex-wrap:wrap}
+.add-form input,.add-form select{padding:11px 13px;background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--text);font-size:13px;outline:none}
+.add-form input{flex:1;min-width:130px}
+.add-form button{padding:11px 18px;background:var(--grad);border:none;border-radius:12px;color:#fff;font-weight:800;cursor:pointer}
 
-/* Empty/Loading/Error */
-.loading{text-align:center;padding:40px;color:var(--text2);font-size:14px}
-.empty{text-align:center;padding:40px;color:var(--text2)}
-.empty span{font-size:40px;display:block;margin-bottom:10px}
-
-/* Telegram sync */
-.tg-sync-row{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
-.sync-btn{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;padding:8px 16px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;transition:.2s}
-.sync-btn:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(34,211,238,.25)}
-.sync-btn:disabled{opacity:.6;cursor:wait;transform:none}
-.sync-hint{font-size:11px;color:var(--text2)}
-
-/* Media cards — poster style */
-.media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
-.media-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:.2s;cursor:default}
-.media-card:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.35)}
-.media-card img{width:100%;height:200px;object-fit:cover;display:block;background:var(--card2)}
-.media-card .info{padding:10px 12px}
-.media-card .info h4{font-size:13px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.media-card .meta{display:flex;gap:8px;margin-top:6px;font-size:11px;color:var(--text2)}
+/* Book link / actions */
+.book-link{display:inline-block;padding:7px 13px;background:linear-gradient(135deg,rgba(34,211,238,.16),rgba(167,139,250,.16));border:1px solid var(--border);border-radius:10px;font-size:12px;font-weight:700;color:var(--accent);text-decoration:none;transition:.15s}
+.book-link:hover{color:#fff;background:var(--grad);border-color:transparent;transform:translateY(-1px)}
 
 /* Search results */
-.search-results{display:flex;flex-direction:column;gap:10px}
-.sr-card{display:flex;gap:12px;padding:12px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);transition:.15s}
+.search-results{display:flex;flex-direction:column;gap:11px}
+.sr-card{display:flex;gap:13px;padding:13px;background:var(--card);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:14px;transition:.18s}
 .sr-card:hover{border-color:var(--accent)}
-.sr-img{width:64px;height:88px;object-fit:cover;border-radius:8px;flex-shrink:0}
+.sr-img{width:66px;height:90px;object-fit:cover;border-radius:10px;flex-shrink:0;background:var(--card2)}
 .sr-info{flex:1;min-width:0}
-.sr-info h3{font-size:14px;font-weight:600;margin-bottom:4px}
+.sr-info h3{font-size:14px;font-weight:700;margin-bottom:4px;word-break:break-word}
 .sr-meta{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text2);flex-wrap:wrap}
-.sr-tag{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}
+.sr-tag{padding:2px 9px;border-radius:11px;font-size:10px;font-weight:800}
 .sr-tag.tg{background:rgba(34,211,238,.15);color:var(--accent)}
-.sr-tag.movie{background:rgba(168,85,247,.15);color:var(--accent2)}
-.sr-tag.book{background:rgba(34,197,94,.15);color:var(--green)}
+.sr-tag.movie{background:rgba(167,139,250,.15);color:var(--accent2)}
+.sr-tag.book{background:rgba(52,211,153,.15);color:var(--green)}
 
-/* Books */
-.book-link{display:inline-block;margin-top:6px;padding:5px 10px;background:linear-gradient(135deg,rgba(34,211,238,.15),rgba(168,85,247,.15));border-radius:8px;font-size:11px;color:var(--accent);text-decoration:none;transition:.15s}
-.book-link:hover{color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2))}
+/* Empty/Loading */
+.loading{text-align:center;padding:44px;color:var(--text2);font-size:14px}
+.empty{text-align:center;padding:44px;color:var(--text2)}
+.empty span{font-size:44px;display:block;margin-bottom:12px}
 
 /* Scrollbar */
-::-webkit-scrollbar{width:8px;height:8px}
-::-webkit-scrollbar-track{background:var(--bg)}
-::-webkit-scrollbar-thumb{background:var(--card2);border-radius:4px}
-::-webkit-scrollbar-thumb:hover{background:var(--border)}
-
-/* TV player box */
-.tv-player-box{position:relative;width:100%;aspect-ratio:16/9;background:#000;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:8px}
-.tv-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--text2);font-size:14px}
-.tv-placeholder span{font-size:48px}
-#tvVideo{width:100%;height:100%;object-fit:contain}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--card2);border-radius:6px}
+::-webkit-scrollbar-thumb:hover{background:var(--border2)}
 
 /* Mobile toggle */
+.mobile-toggle{display:none;position:fixed;top:13px;left:13px;z-index:100;padding:9px 14px;background:var(--card);backdrop-filter:blur(14px);border:1px solid var(--border);border-radius:11px;color:var(--text);font-size:18px;cursor:pointer}
+.mobile-toggle:hover{border-color:var(--accent)}
 
-.mobile-toggle{display:none;position:fixed;top:12px;left:12px;z-index:100;padding:8px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:18px;cursor:pointer}
-
-@media(max-width:768px){
-  .side{transform:translateX(-100%);transition:.3s;z-index:60}.side.open{transform:translateX(0)}
-  .main{margin-left:0;padding:16px;padding-top:50px}
+@media(max-width:820px){
+  .side{transform:translateX(-105%);transition:.32s;z-index:60;box-shadow:var(--shadow)}
+  .side.open{transform:translateX(0)}
+  .main{margin-left:0;padding:18px 14px 34px;padding-top:56px}
   .mobile-toggle{display:block}
   .stats-grid{grid-template-columns:repeat(2,1fr)}
   .quick-grid{grid-template-columns:repeat(2,1fr)}
   .svc-grid{grid-template-columns:1fr}
-  .tv-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+  .tv-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
   .media-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
-  .chat-box{height:calc(100vh - 100px)}
+  .chat-box{height:calc(100vh - 140px)}
+  .chip-wrap{flex-wrap:nowrap;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch}
+  .chip{flex-shrink:0}
+  .tv-frame{aspect-ratio:16/10}
 }
 `;
 
 // ============================================================
 // FRONTEND — JavaScript
 // ============================================================
-const APP_JS = `
-(function(){
+const APP_JS = `(function(){
 'use strict';
 
 var API = '';
 var tgMessages = [];
-var tgCurrentType = 'all';
 var tvAllChannels = [];
-var tvCurrentGroup = 'all';
+var tvView = [];
+var state = { page:'home', tvCat:'all', tvWorking:true, tgType:'all' };
 
-// --- Init ---
+function $(id){ return document.getElementById(id); }
+function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+function formatSize(b){
+  if(b>=1073741824) return (b/1073741824).toFixed(1)+' GB';
+  if(b>=1048576) return (b/1048576).toFixed(1)+' MB';
+  if(b>=1024) return (b/1024).toFixed(1)+' KB';
+  return b+' B';
+}
+function NL(){ return String.fromCharCode(10); }
+
+/* ---------- Init ---------- */
 window.addEventListener('load', function(){
+  var th = 'dark';
+  try { th = localStorage.getItem('njtheme') || 'dark'; } catch(e){}
+  document.documentElement.setAttribute('data-theme', th);
+  syncThemeIcon();
   setTimeout(function(){
-    document.getElementById('loader').classList.add('hide');
-    document.getElementById('app').classList.add('vis');
-    N.go('home');
-  }, 1800);
+    $('loader').classList.add('hide');
+    $('app').classList.add('vis');
+    go('home');
+  }, 900);
 });
 
-// --- Navigation ---
-var N = window.N = {};
-N.go = function(page){
-  document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active') });
-  document.querySelectorAll('.nav-btn').forEach(function(b){ b.classList.remove('active') });
-  var pg = document.getElementById('pg-'+page);
-  if(pg) pg.classList.add('active');
-  var btn = document.querySelector('[data-page="'+page+'"]');
-  if(btn) btn.classList.add('active');
-  document.getElementById('side').classList.remove('open');
+/* ---------- Theme ---------- */
+function toggleTheme(){
+  var h = document.documentElement;
+  var t = h.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  h.setAttribute('data-theme', t);
+  try { localStorage.setItem('njtheme', t); } catch(e){}
+  syncThemeIcon();
+}
+function syncThemeIcon(){
+  var b = $('themeBtn');
+  if (b) b.textContent = document.documentElement.getAttribute('data-theme') === 'light' ? '🌙' : '☀️';
+}
 
-  if(page==='home') N.loadHome();
-  if(page==='tv') N.loadTV();
-  if(page==='tg') N.loadTG();
-  if(page==='movies') N.loadMovies('popular');
-  if(page==='books') N.loadBooks('hindi');
-  if(page==='catalog') N.loadCatalog();
-};
+/* ---------- Navigation ---------- */
+function go(page){
+  document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
+  document.querySelectorAll('.nav-btn').forEach(function(b){ b.classList.remove('active'); });
+  var pg = $('pg-'+page);
+  if (pg) pg.classList.add('active');
+  var btn = document.querySelector('[data-nav="'+page+'"]');
+  if (btn) btn.classList.add('active');
+  $('side').classList.remove('open');
+  state.page = page;
+  if (page==='home')    loadHome();
+  if (page==='tv')      loadTV();
+  if (page==='tg')      loadTG();
+  if (page==='movies')  loadMovies('popular');
+  if (page==='books')   loadBooks('hindi');
+  if (page==='catalog') loadCatalog();
+}
 
-// --- HOME ---
-N.loadHome = async function(){
+/* ---------- Global click delegation ---------- */
+document.addEventListener('click', function(e){
+  var t = e.target;
+  var n;
+  n = t.closest('[data-theme-toggle]'); if (n) { toggleTheme(); return; }
+  n = t.closest('[data-nav]');   if (n) { go(n.getAttribute('data-nav')); return; }
+  n = t.closest('[data-tvcat]'); if (n) { setTVCat(n.getAttribute('data-tvcat'), n); return; }
+  n = t.closest('[data-work]');  if (n) { toggleWorking(n); return; }
+  n = t.closest('[data-tvplay]');if (n) { playTV(parseInt(n.getAttribute('data-tvplay'),10)); return; }
+  n = t.closest('[data-tvsearch]'); if (n) { filterTV(); return; }
+  n = t.closest('[data-tgtype]'); if (n) { setTGType(n.getAttribute('data-tgtype'), n); return; }
+  n = t.closest('[data-tgsearch]'); if (n) { filterTGMessages(); return; }
+  n = t.closest('[data-sync]');  if (n) { syncTG(n); return; }
+  n = t.closest('[data-mtype]'); if (n) { loadMovies(n.getAttribute('data-mtype'), n); return; }
+  n = t.closest('[data-btype]'); if (n) { loadBooks(n.getAttribute('data-btype'), n); return; }
+  n = t.closest('[data-bsearch]'); if (n) { loadBooks(); return; }
+  n = t.closest('[data-search]'); if (n) { doSearch(); return; }
+  n = t.closest('[data-ask]');   if (n) { $('chatIn').value = n.getAttribute('data-ask'); sendChat(); return; }
+  n = t.closest('[data-send]');  if (n) { sendChat(); return; }
+  n = t.closest('[data-addcat]');if (n) { addToCatalog(); return; }
+  n = t.closest('#mtoggle');    if (n) { $('side').classList.toggle('open'); return; }
+});
+
+document.addEventListener('keydown', function(e){
+  if (e.key !== 'Enter') return;
+  var t = e.target;
+  if (!t) return;
+  if (t.id === 'tvSearch')   filterTV();
+  if (t.id === 'tgSearch')   filterTGMessages();
+  if (t.id === 'bookSearch') loadBooks();
+  if (t.id === 'searchInput') doSearch();
+  if (t.id === 'chatIn')     sendChat();
+});
+
+/* ---------- HOME ---------- */
+async function loadHome(){
   try{
     var r = await fetch(API+'/api/status');
     var d = await r.json();
-    document.getElementById('svcKV').textContent = d.services.kv==='live'?'● Live':'● '+d.services.kv;
-    document.getElementById('svcD1').textContent = '● '+d.services.d1;
-    document.getElementById('svcTG').textContent = '● '+d.services.tg_messages;
+    if (d.services){
+      $('svcKV').textContent = d.services.kv === 'live' ? '● Live' : '● '+d.services.kv;
+      $('svcD1').textContent = '● '+d.services.d1;
+      $('svcTG').textContent = '● '+d.services.tg_messages;
+    }
   }catch(e){}
 
   try{
     var r2 = await fetch(API+'/api/live-tv');
     var d2 = await r2.json();
-    document.getElementById('stTV').textContent = d2.total+' ch';
-  }catch(e){document.getElementById('stTV').textContent='0';}
+    $('stTV').textContent = (d2.working||0)+' / '+(d2.total||0);
+  }catch(e){ $('stTV').textContent='0'; }
 
   try{
     var r3 = await fetch(API+'/api/telegram/stats');
     var d3 = await r3.json();
-    document.getElementById('stTG').textContent = d3.total||d3.indexed||'0';
-  }catch(e){document.getElementById('stTG').textContent='0';}
+    $('stTG').textContent = d3.total || d3.indexed || '0';
+  }catch(e){ $('stTG').textContent='0'; }
 
-  document.getElementById('stMovies').textContent='10+';
-};
+  $('stMovies').textContent = '10+';
+}
 
-// --- LIVE TV ---
-N.loadTV = async function(){
-  var grid = document.getElementById('tvGrid');
-  grid.innerHTML='<div class="loading">📺 Loading channels...</div>';
+/* ---------- LIVE TV ---------- */
+async function loadTV(){
+  var grid = $('tvGrid');
+  grid.innerHTML = '<div class="loading">📺 Loading channels…</div>';
   try{
     var r = await fetch(API+'/api/live-tv');
     var d = await r.json();
-    tvAllChannels = d.channels||[];
-    document.getElementById('tvTotal').textContent = d.total||0;
-
-    // Build filters
-    var fh = '<button class="fbtn active" onclick="N.tvFilterGroup(\\'all\\',this)">All ('+d.total+')</button>';
-    fh += '<button class="fbtn" onclick="N.tvFilterGroup(\\'hindi\\',this)">🇮🇳 Hindi ('+d.hindi+')</button>';
-    if(d.groups){
-      var sorted = Object.entries(d.groups).sort(function(a,b){return b[1]-a[1]}).slice(0,10);
-      sorted.forEach(function(g){fh+='<button class="fbtn" onclick="N.tvFilterGroup(\\''+g[0].replace(/'/g,"\\\\'")+'\\',this)">'+g[0]+' ('+g[1]+')</button>'});
-    }
-    document.getElementById('tvFilters').innerHTML=fh;
-    N.renderTV(tvAllChannels);
+    tvAllChannels = d.channels || [];
+    tvView = tvAllChannels;
+    $('tvTotal').textContent = d.total || 0;
+    $('tvWorking').textContent = d.working || 0;
+    buildTVChips(d);
+    filterTV();
   }catch(e){
-    grid.innerHTML='<div class="empty"><span>📺</span>Channels load nahi ho paye. Try again.</div>';
+    grid.innerHTML = '<div class="empty"><span>📺</span>Channels load nahi ho paye. Try again.</div>';
   }
-};
-
-N.renderTV = function(channels){
-  var grid = document.getElementById('tvGrid');
-  if(!channels.length){grid.innerHTML='<div class="empty"><span>📺</span>Koi channel nahi mila</div>';return;}
-  var h='<div class="tv-grid">';
-  channels.forEach(function(ch,i){
-    h+='<div class="tv-card" onclick="N.playTV('+i+')">';
-    h+='<div class="tv-card-img">'+(ch.logo?'<img src="'+ch.logo+'" onerror="this.parentElement.innerHTML=\\'📺\\'">':'📺')+'</div>';
-    h+='<div class="tv-card-info"><div class="tv-card-name">'+esc(ch.name)+'</div><div class="tv-card-group">'+esc(ch.group)+(ch.hindi?' 🇮🇳':'')+'</div></div>';
-    h+='</div>';
-  });
-  h+='</div>';
-  grid.innerHTML=h;
-};
-
-N.playTV = function(idx){
-  var ch = tvAllChannels[idx];
-  if(!ch||!ch.url)return;
-  var video = document.getElementById('tvVideo');
-  var ph = document.getElementById('tvPlaceholder');
-  var bar = document.getElementById('tvBar');
-  var status = document.getElementById('tvPlaying');
-  video.style.display='block';
-  ph.style.display='none';
-  bar.style.display='flex';
-  status.textContent=ch.name+' — loading...';
-
-  // Stop any existing HLS instance
-  if (window.__hls) { try { window.__hls.destroy(); } catch(e){} window.__hls=null; }
-
-  var src = API+'/api/live-tv/stream?url='+encodeURIComponent(ch.url);
-  var canHls = window.Hls && Hls.isSupported();
-
-  function attachAndPlay(url){
-    video.removeAttribute('src');
-    try { video.load(); } catch(e){}
-    if (canHls) {
-      var hls = new Hls({ maxBufferLength: 30, enableWorker: true });
-      window.__hls = hls;
-      hls.loadSource(url);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, function(){ video.play().catch(function(){}); status.textContent=ch.name+' — LIVE'; });
-      hls.on(Hls.Events.ERROR, function(evt, data){
-        if (data.fatal){
-          if (data.type==='networkError') { try { hls.startLoad(); } catch(e){} }
-          else if (data.type==='mediaError') { try { hls.recoverMediaError(); } catch(e){} }
-          else { showTVError(ch.name, 'Stream error'); }
-        }
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = url;
-      video.play().catch(function(){ showTVError(ch.name,'Play failed'); });
-      video.onplaying = function(){ status.textContent=ch.name+' — LIVE'; };
-    } else {
-      video.src = url;
-      video.play().catch(function(){ showTVError(ch.name,'Play failed'); });
-      video.onplaying = function(){ status.textContent=ch.name+' — LIVE'; };
-    }
-  }
-
-  attachAndPlay(src);
-};
-
-function showTVError(name, err){
-  var ph = document.getElementById('tvPlaceholder');
-  var video = document.getElementById('tvVideo');
-  var bar = document.getElementById('tvBar');
-  ph.innerHTML='<span>❌</span><p>'+esc(name)+' — play nahi ho raha</p><p style="font-size:11px;color:var(--text2)">'+esc(err)+'. Koi aur channel try karo.</p>';
-  ph.style.display='flex';
-  video.style.display='none';
-  bar.style.display='none';
-  if (window.__hls) { try { window.__hls.destroy(); } catch(e){} window.__hls=null; }
 }
 
-N.tvFilterGroup = function(group,btn){
-  tvCurrentGroup=group;
-  document.querySelectorAll('#tvFilters .fbtn').forEach(function(b){b.classList.remove('active')});
-  if(btn)btn.classList.add('active');
-  N.filterTV();
-};
-
-N.filterTV = function(){
-  var q = (document.getElementById('tvSearch').value||'').toLowerCase();
-  var filtered = tvAllChannels.filter(function(ch){
-    var matchGroup = tvCurrentGroup==='all'||(tvCurrentGroup==='hindi'&&ch.hindi)||ch.group.toLowerCase()===tvCurrentGroup.toLowerCase();
-    var matchQ = !q||ch.name.toLowerCase().includes(q)||ch.group.toLowerCase().includes(q);
-    return matchGroup&&matchQ;
+function buildTVChips(d){
+  var counts = (d.categories && d.categories.counts) || {};
+  var wk = (d.categories && d.categories.working) || {};
+  var h = '<button class="chip'+(state.tvCat==='all'?' active':'')+'" data-tvcat="all">All ('+(d.total||0)+')</button>';
+  h += '<button class="chip'+(state.tvCat==='hindi'?' active':'')+'" data-tvcat="hindi">🇮🇳 Hindi ('+(d.hindi||0)+')</button>';
+  var names = Object.keys(counts).sort(function(a,b){ return (wk[b]||0)-(wk[a]||0); });
+  names.forEach(function(n){
+    h += '<button class="chip'+(state.tvCat===n?' active':'')+'" data-tvcat="'+n+'">'+n+' <span class="chip-w">'+(wk[n]||0)+'</span>/'+(counts[n]||0)+'</button>';
   });
-  N.renderTV(filtered);
-};
+  h += '<button class="chip toggle'+(state.tvWorking?' on':'')+'" data-work>✅ Working Only</button>';
+  $('tvFilters').innerHTML = h;
+}
 
-// --- TELEGRAM ---
-N.loadTG = async function(){
-  document.getElementById('tgMessages').innerHTML='<div class="loading">📱 Loading Telegram data...</div>';
+function setTVCat(cat, btn){
+  state.tvCat = cat;
+  $('tvFilters').querySelectorAll('[data-tvcat]').forEach(function(b){ b.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
+  filterTV();
+}
+
+function toggleWorking(btn){
+  state.tvWorking = !state.tvWorking;
+  if (btn) btn.classList.toggle('on');
+  filterTV();
+}
+
+function filterTV(){
+  var q = ($('tvSearch').value || '').toLowerCase();
+  var cat = state.tvCat;
+  var filtered = tvAllChannels.filter(function(ch){
+    var ok = true;
+    if (cat === 'hindi') ok = !!ch.hindi;
+    else if (cat !== 'all') ok = (ch.categories || []).indexOf(cat) >= 0;
+    if (ok && state.tvWorking && ch.working === false) ok = false;
+    if (ok && q){
+      var hay = (ch.name + ' ' + (ch.group||'')).toLowerCase();
+      ok = hay.indexOf(q) >= 0;
+    }
+    return ok;
+  });
+  renderTV(filtered);
+}
+
+function renderTV(channels){
+  tvView = channels;
+  var grid = $('tvGrid');
+  if (!channels.length){ grid.innerHTML = '<div class="empty"><span>📺</span>Koi channel nahi mila</div>'; return; }
+  var h = '';
+  channels.forEach(function(ch, i){
+    var badge = '';
+    if (ch.working) badge += '<span class="ch-badge ok">● Live</span>';
+    else badge += '<span class="ch-badge warn">⚠️ Try</span>';
+    if (ch.quality >= 4) badge += '<span class="ch-badge hd">HD</span>';
+    if (ch.hindi) badge += '<span class="ch-badge hindi">🇮🇳</span>';
+    var logo = ch.logo
+      ? '<div class="tv-card-logo"><img src="'+ch.logo+'" loading="lazy" alt=""></div>'
+      : '<div class="tv-card-logo noimg">📺</div>';
+    h += '<div class="tv-card'+(ch.working?'':' dead')+'" data-tvplay="'+i+'" style="--i:'+(i%10)+'">';
+    h += logo;
+    h += '<div class="tv-card-info"><div class="tv-card-name">'+esc(ch.name)+'</div>';
+    h += '<div class="tv-card-meta">'+badge+'<span class="ch-group">'+esc(ch.group||'')+'</span></div>';
+    h += '</div></div>';
+  });
+  grid.innerHTML = h;
+  grid.querySelectorAll('.tv-card-logo img').forEach(function(img){
+    img.addEventListener('error', function(){
+      var p = img.parentElement;
+      p.innerHTML = '📺';
+      p.classList.add('noimg');
+    });
+  });
+}
+
+function playTV(idx){
+  var ch = tvView[idx];
+  if (!ch || !ch.url) return;
+  var video = $('tvVideo');
+  var ph = $('tvPlaceholder');
+  var bar = $('tvBar');
+  var status = $('tvPlaying');
+  video.style.display = 'block';
+  ph.style.display = 'none';
+  bar.style.display = 'flex';
+  status.textContent = ch.name + ' — loading…';
+
+  if (window.__hls){ try { window.__hls.destroy(); } catch(e){} window.__hls = null; }
+
+  var src = API + '/api/live-tv/proxy?url=' + encodeURIComponent(ch.url);
+  var canHls = window.Hls && Hls.isSupported();
+
+  function attachAndPlay(u){
+    video.removeAttribute('src');
+    try { video.load(); } catch(e){}
+    if (canHls){
+      var hls = new Hls({ maxBufferLength: 30, enableWorker: true });
+      window.__hls = hls;
+      hls.loadSource(u);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function(){ video.play().catch(function(){}); status.textContent = ch.name + ' — LIVE'; });
+      hls.on(Hls.Events.ERROR, function(ev, data){
+        if (data.fatal){
+          if (data.type === 'networkError'){ try { hls.startLoad(); } catch(e){} }
+          else if (data.type === 'mediaError'){ try { hls.recoverMediaError(); } catch(e){} }
+          else showTVError(ch.name, 'Stream error');
+        }
+      });
+    } else {
+      video.src = u;
+      video.play().catch(function(){ showTVError(ch.name, 'Play failed'); });
+      video.onplaying = function(){ status.textContent = ch.name + ' — LIVE'; };
+    }
+  }
+
+  video.onerror = function(){ showTVError(ch.name, 'Playback error'); };
+  attachAndPlay(src);
+}
+
+function showTVError(name, err){
+  var ph = $('tvPlaceholder');
+  var video = $('tvVideo');
+  var bar = $('tvBar');
+  ph.innerHTML = '<span>❌</span><p>'+esc(name)+' — play nahi ho raha</p><p class="ph-sub">'+esc(err)+'. Koi aur channel try karo.</p>';
+  ph.style.display = 'flex';
+  video.style.display = 'none';
+  bar.style.display = 'none';
+  if (window.__hls){ try { window.__hls.destroy(); } catch(e){} window.__hls = null; }
+}
+
+/* ---------- TELEGRAM ---------- */
+async function loadTG(){
+  $('tgMessages').innerHTML = '<div class="loading">📱 Loading Telegram data…</div>';
   try{
     var r = await fetch(API+'/api/telegram/stats');
     var d = await r.json();
-    document.getElementById('tgStats').innerHTML=
+    $('tgStats').innerHTML =
       '<div class="tg-stat">📱 <span class="num">'+(d.total||0)+'</span> Messages</div>'+
-      '<div class="tg-stat">📷 <span class="num">'+(d.photos||0)+'</span> Photos</div>'+
       '<div class="tg-stat">🎥 <span class="num">'+(d.videos||0)+'</span> Videos</div>'+
+      '<div class="tg-stat">📷 <span class="num">'+(d.photos||0)+'</span> Photos</div>'+
       '<div class="tg-stat">📄 <span class="num">'+(d.documents||0)+'</span> Documents</div>'+
       '<div class="tg-stat">🎵 <span class="num">'+(d.audios||0)+'</span> Audio</div>';
-  }catch(e){document.getElementById('tgStats').innerHTML='';}
+  }catch(e){ $('tgStats').innerHTML=''; }
 
   try{
-    var r2 = await fetch(API+'/api/telegram/messages?limit=200');
+    var r2 = await fetch(API+'/api/telegram/messages?limit=300');
     var d2 = await r2.json();
-    tgMessages = d2.messages||[];
-    N.renderTG(tgMessages);
+    tgMessages = d2.messages || [];
+    renderTG(tgMessages);
   }catch(e){
-    document.getElementById('tgMessages').innerHTML='<div class="empty"><span>📱</span>Telegram data load nahi ho paya. Bot ko group me add karo aur /api/telegram/sync call karo.</div>';
+    $('tgMessages').innerHTML = '<div class="empty"><span>📱</span>Telegram data load nahi ho paya. Bot ko group me add karo aur Sync karo.</div>';
   }
-};
+}
 
-N.syncTG = async function(btn){
-  if (btn){ btn.disabled=true; btn.textContent='🔄 Syncing...'; }
-  var hint = document.getElementById('tgSyncHint');
-  if (hint) hint.textContent = 'Group se messages fetch ho rahe hain...';
+async function syncTG(btn){
+  if (btn){ btn.disabled = true; btn.textContent = '🔄 Syncing…'; }
+  var hint = $('tgSyncHint');
+  if (hint) hint.textContent = 'Group se messages fetch ho rahe hain…';
   try{
-    var r = await fetch(API+'/api/telegram/sync',{method:'POST'});
+    var r = await fetch(API+'/api/telegram/sync', { method:'POST' });
     var d = await r.json();
     if (hint){
-      if (d.ok !== false && !d.error){
-        hint.textContent = '✅ Sync complete — '+(d.processed||0)+' messages processed';
-      } else if (d.error){
-        hint.textContent = '⚠️ '+(d.error||'Sync failed')+(d.detail?' — '+d.detail:'');
-      } else {
-        hint.textContent = '✅ Sync done';
-      }
+      if (d.ok !== false && !d.error) hint.textContent = '✅ Sync complete — '+(d.processed||0)+' messages processed';
+      else if (d.error) hint.textContent = '⚠️ '+(d.error||'Sync failed')+(d.detail?' — '+d.detail:'');
+      else hint.textContent = '✅ Sync done';
     }
-    N.loadTG();
+    loadTG();
   }catch(e){
-    if (hint) hint.textContent='⚠️ Sync failed: '+e.message;
+    if (hint) hint.textContent = '⚠️ Sync failed: '+e.message;
   }
-  if (btn){ btn.disabled=false; btn.textContent='🔄 Sync Group Data'; }
-};
+  if (btn){ btn.disabled = false; btn.textContent = '🔄 Sync Group Data'; }
+}
 
-N.renderTG = function(msgs){
-  var el = document.getElementById('tgMessages');
-  if(!msgs.length){el.innerHTML='<div class="empty"><span>📱</span>Koi message nahi mila. Pehle Telegram bot ko group me add karo.</div>';return;}
-  var h='';
-  msgs.forEach(function(m){
-    var date = m.date?new Date(m.date*1000).toLocaleString('hi-IN'):'Unknown date';
-    h+='<div class="tg-msg">';
-    h+='<div class="tg-msg-header"><span class="tg-msg-from">'+esc(m.from||'Unknown')+'</span><span>'+date+'</span></div>';
-    if(m.text) h+='<div class="tg-msg-text">'+esc(m.text)+'</div>';
-    if(m.caption) h+='<div class="tg-msg-text"><em>'+esc(m.caption)+'</em></div>';
-    if(m.has_media){
-      var dl = m.file_url ? m.file_url : (m.file_id ? '/api/telegram/file?file_id='+m.file_id : '');
-      h+='<div class="tg-msg-media">';
-      h+='<span class="tg-media-tag">📎 '+esc(m.media_type||'media')+'</span>';
-      if(m.file_name) h+='<span class="tg-media-tag">📄 '+esc(m.file_name)+'</span>';
-      if(m.file_size) h+='<span class="tg-media-tag">💾 '+formatSize(m.file_size)+'</span>';
-      if(m.media_type==='video'&&dl){
-        h+='<video controls preload="none" style="width:100%;max-height:320px;border-radius:10px;margin-top:6px;background:#000"><source src="'+dl+'"></video>';
-      }else if(m.media_type==='photo'&&dl){
-        h+='<a href="'+dl+'" target="_blank"><img src="'+dl+'" style="max-width:100%;max-height:280px;border-radius:10px;margin-top:6px;cursor:pointer" alt="photo"></a>';
-      }else if(dl){
-        h+='<div style="margin-top:6px"><a class="book-link" href="'+dl+'" target="_blank">⬇️ Download '+(m.media_type||'file')+'</a></div>';
-      }else if(m.file_id){
-        h+='<div style="margin-top:6px"><a class="book-link" href="/api/telegram/file?file_id='+m.file_id+'" target="_blank">⬇️ Download</a></div>';
-      }
-      h+='</div>';
-    }
-    h+='</div>';
-  });
-  el.innerHTML=h;
-};
+function setTGType(type, btn){
+  state.tgType = type;
+  document.querySelectorAll('[data-tgtype]').forEach(function(b){ b.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
+  filterTGMessages();
+}
 
-N.filterTG = function(type,btn){
-  tgCurrentType=type;
-  document.querySelectorAll('#pg-tg .fbtn').forEach(function(b){b.classList.remove('active')});
-  if(btn)btn.classList.add('active');
-  N.filterTGMessages();
-};
-
-N.filterTGMessages = function(){
-  var q = (document.getElementById('tgSearch').value||'').toLowerCase();
+function filterTGMessages(){
+  var q = ($('tgSearch').value || '').toLowerCase();
+  var type = state.tgType;
   var filtered = tgMessages.filter(function(m){
-    var matchType = tgCurrentType==='all'||(tgCurrentType==='text'?!m.has_media:m.media_type===tgCurrentType);
-    var matchQ = !q||(m.text||'').toLowerCase().includes(q)||(m.file_name||'').toLowerCase().includes(q)||(m.caption||'').toLowerCase().includes(q);
-    return matchType&&matchQ;
+    var ok = type === 'all' || m.media_type === type || (type === 'text' && !m.has_media);
+    if (ok && q){
+      var hay = ((m.text||'') + ' ' + (m.caption||'') + ' ' + (m.from||'') + ' ' + (m.file_name||'')).toLowerCase();
+      ok = hay.indexOf(q) >= 0;
+    }
+    return ok;
   });
-  N.renderTG(filtered);
-};
+  renderTG(filtered);
+}
 
-// --- MOVIES ---
-N.loadMovies = async function(type,btn){
-  if(btn){document.querySelectorAll('#pg-movies .fbtn').forEach(function(b){b.classList.remove('active')});btn.classList.add('active');}
-  document.getElementById('moviesGrid').innerHTML='<div class="loading">🎬 Loading...</div>';
+function renderTG(msgs){
+  var el = $('tgMessages');
+  if (!msgs.length){ el.innerHTML = '<div class="empty"><span>📱</span>Koi message nahi mila. Pehle Sync karo.</div>'; return; }
+  var h = '';
+  msgs.forEach(function(m){
+    var date = 'Unknown';
+    try { date = new Date(m.date * 1000).toLocaleString('hi-IN'); } catch(e){}
+    h += '<div class="tg-msg">';
+    h += '<div class="tg-msg-header"><span class="tg-msg-from">'+esc(m.from||'Unknown')+'</span><span>'+date+'</span></div>';
+    if (m.text) h += '<div class="tg-msg-text">'+esc(m.text)+'</div>';
+    if (m.caption) h += '<div class="tg-msg-text"><em>'+esc(m.caption)+'</em></div>';
+    if (m.has_media){
+      var dl = m.file_id ? '/api/telegram/file?file_id='+encodeURIComponent(m.file_id) : '';
+      var dlAtt = m.file_id ? '/api/telegram/file?file_id='+encodeURIComponent(m.file_id)+'&dl=1' : '';
+      h += '<div class="tg-msg-media">';
+      h += '<span class="tg-media-tag">📎 '+esc(m.media_type||'media')+'</span>';
+      if (m.file_name) h += '<span class="tg-media-tag">📄 '+esc(m.file_name)+'</span>';
+      if (m.file_size) h += '<span class="tg-media-tag">💾 '+formatSize(m.file_size)+'</span>';
+      if (m.media_type === 'video'){
+        var tooBig = m.file_size > 20000000;
+        if (dl && !tooBig){
+          h += '<div class="tg-video-wrap"><video controls preload="metadata" playsinline><source src="'+dl+'" type="video/mp4"></video></div>';
+          h += '<div class="tg-actions"><a class="book-link" href="'+dlAtt+'">⬇️ Download Video</a>';
+          if (m.tlink) h += '<a class="book-link" href="'+m.tlink+'" target="_blank">📱 Watch in Telegram</a>';
+          h += '</div>';
+        } else if (m.tlink){
+          h += '<div class="tg-fail"><p>🎬 '+esc(m.file_name||'Video')+' — '+(tooBig ? 'size '+formatSize(m.file_size)+' bot proxy limit (20MB) se bada hai' : 'stream link unavailable')+'.</p><a class="book-link" href="'+m.tlink+'" target="_blank">📱 Telegram me kholo / download karo</a><a class="book-link" href="'+dlAtt+'">⬇️ Try Download Direct</a></div>';
+        } else if (dlAtt){
+          h += '<div class="tg-actions"><a class="book-link" href="'+dlAtt+'">⬇️ Download Video</a></div>';
+        }
+      } else if (m.media_type === 'photo' && dl){
+        h += '<a href="'+dl+'" target="_blank"><img src="'+dl+'" alt="photo" loading="lazy" style="max-width:100%;max-height:300px;border-radius:12px;margin-top:8px;cursor:pointer;border:1px solid var(--border)"></a>';
+      } else if (dl){
+        h += '<div class="tg-actions" style="margin-top:8px"><a class="book-link" href="'+dlAtt+'">⬇️ Download '+(m.media_type||'file')+'</a></div>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+  });
+  el.innerHTML = h;
+  el.querySelectorAll('.tg-video-wrap video').forEach(function(v){
+    v.addEventListener('error', function(){
+      var msg = v.closest('.tg-msg');
+      if (msg){
+        var fail = msg.querySelector('.tg-fail');
+        if (fail) fail.style.display = 'block';
+      }
+    });
+  });
+}
+
+/* ---------- MOVIES ---------- */
+async function loadMovies(type, btn){
+  type = type || 'popular';
+  document.querySelectorAll('[data-mtype]').forEach(function(b){ b.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
+  var el = $('moviesGrid');
+  el.innerHTML = '<div class="loading">🎬 Loading movies…</div>';
   try{
     var r = await fetch(API+'/api/movies?type='+type);
     var d = await r.json();
-    var h='';
-    (d.results||[]).forEach(function(m){
-      h+='<div class="media-card">';
-      if(m.image) h+='<img src="'+m.image+'" alt="'+esc(m.title)+'">';
-      else h+='<img src="" style="background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center" alt="">';
-      h+='<div class="info"><h4>'+esc(m.title)+'</h4>';
-      h+='<div class="meta"><span>⭐ '+m.rating+'</span><span>'+(m.year||'')+'</span></div></div></div>';
+    var results = d.results || [];
+    if (!results.length){ el.innerHTML = '<div class="empty"><span>🎬</span>Koi movie nahi mili</div>'; return; }
+    var h = '';
+    results.forEach(function(m){
+      h += '<div class="media-card"><div class="info"><h4>'+esc(m.title)+'</h4>';
+      h += '<div class="meta"><span>⭐ '+(m.rating||'-')+'</span><span>'+(m.year||'')+'</span></div>';
+      if (m.overview) h += '<p style="font-size:11px;color:var(--text2);margin-top:5px">'+esc(m.overview.substring(0,90))+'…</p>';
+      h += '</div></div>';
     });
-    document.getElementById('moviesGrid').innerHTML=h||'<div class="empty"><span>🎬</span>Koi movie nahi mili</div>';
+    el.innerHTML = h;
   }catch(e){
-    document.getElementById('moviesGrid').innerHTML='<div class="empty"><span>🎬</span>Movies load nahi ho payi</div>';
+    el.innerHTML = '<div class="empty"><span>⚠️</span>Movies load fail hui. Try again.</div>';
   }
-};
+}
 
-// --- BOOKS ---
-N.loadBooks = async function(q,btn){
-  if(btn){document.querySelectorAll('#pg-books .fbtn').forEach(function(b){b.classList.remove('active')});btn.classList.add('active');}
-  var query = document.getElementById('bookSearch').value||q||'hindi';
-  document.getElementById('booksGrid').innerHTML='<div class="loading">📚 Loading...</div>';
+/* ---------- BOOKS ---------- */
+async function loadBooks(type, btn){
+  type = type || 'hindi';
+  document.querySelectorAll('[data-btype]').forEach(function(b){ b.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
+  var q = $('bookSearch').value.trim();
+  var el = $('booksGrid');
+  el.innerHTML = '<div class="loading">📚 Loading books…</div>';
   try{
-    var r = await fetch(API+'/api/books?q='+encodeURIComponent(query));
+    var url = API + '/api/books?type=' + encodeURIComponent(type);
+    if (q) url += '&q=' + encodeURIComponent(q);
+    var r = await fetch(url);
     var d = await r.json();
-    var h='';
-    (d.results||[]).forEach(function(b){
-      h+='<div class="media-card">';
-      if(b.cover) h+='<img src="'+b.cover+'" alt="'+esc(b.title)+'">';
-      else h+='<img src="" style="background:var(--card2)" alt="">';
-      h+='<div class="info"><h4>'+esc(b.title)+'</h4>';
-      h+='<div class="meta"><span>'+(b.author||'')+'</span><span>'+(b.year||'')+'</span></div>';
-      if(b.read_url) h+='<a class="read-link" href="'+b.read_url+'" target="_blank">📖 Read Free</a>';
-      h+='</div></div>';
+    var results = d.results || [];
+    if (!results.length){ el.innerHTML = '<div class="empty"><span>📚</span>Koi book nahi mili</div>'; return; }
+    var h = '';
+    results.forEach(function(b){
+      h += '<div class="media-card">';
+      if (b.cover) h += '<img src="'+b.cover+'" alt="" loading="lazy">';
+      else h += '<img src="" alt="" style="background:var(--card2)">';
+      h += '<div class="info"><h4>'+esc(b.title)+'</h4>';
+      if (b.author) h += '<div class="meta"><span>✍️ '+esc(b.author)+'</span></div>';
+      if (b.read_url) h += '<a class="book-link" style="margin-top:8px" href="'+b.read_url+'" target="_blank">📖 Read Free</a>';
+      h += '</div></div>';
     });
-    document.getElementById('booksGrid').innerHTML=h||'<div class="empty"><span>📚</span>Koi book nahi mili</div>';
+    el.innerHTML = h;
   }catch(e){
-    document.getElementById('booksGrid').innerHTML='<div class="empty"><span>📚</span>Books load nahi ho payi</div>';
+    el.innerHTML = '<div class="empty"><span>⚠️</span>Books load nahi hui. Try again.</div>';
   }
-};
+}
 
-// --- SEARCH ---
-N.doSearch = async function(){
-  var q = document.getElementById('searchInput').value.trim();
-  if(!q)return;
-  var el = document.getElementById('searchResults');
-  el.innerHTML='<div class="loading">🔍 Searching all sources...</div>';
+/* ---------- SEARCH ---------- */
+async function doSearch(){
+  var q = $('searchInput').value.trim();
+  if (!q) return;
+  var el = $('searchResults');
+  el.innerHTML = '<div class="loading">🔍 Searching all sources…</div>';
   try{
     var r = await fetch(API+'/api/search?q='+encodeURIComponent(q));
     var d = await r.json();
-    var h='';
-    var total = (d.movies||[]).length+(d.books||[]).length+(d.telegram||[]).length;
-    h+='<div style="margin-bottom:12px;color:var(--text2);font-size:13px">'+total+' results for "'+q+'"</div>';
+    var h = '';
+    var total = (d.movies||[]).length + (d.books||[]).length + (d.telegram||[]).length;
+    h += '<div style="margin-bottom:12px;color:var(--text2);font-size:13px">'+total+' results for “'+esc(q)+'”</div>';
 
     (d.telegram||[]).forEach(function(m){
-      h+='<div class="sr-card"><div class="sr-info"><h3>'+esc(m.text||m.file_name||'Media')+'</h3>';
-      h+='<div class="sr-meta"><span class="sr-tag tg">📱 Telegram</span>';
-      if(m.media_type) h+='<span class="sr-tag tg">'+m.media_type+'</span>';
-      h+='</div>';
-      if(m.from) h+='<p style="font-size:12px;color:var(--text2)">'+esc(m.from)+'</p>';
-      h+='</div></div>';
+      h += '<div class="sr-card"><div class="sr-info"><h3>'+esc(m.text||m.file_name||'Media')+'</h3>';
+      h += '<div class="sr-meta"><span class="sr-tag tg">📱 Telegram</span>';
+      if (m.media_type) h += '<span class="sr-tag tg">'+esc(m.media_type)+'</span>';
+      h += '</div>';
+      if (m.from) h += '<p style="font-size:12px;color:var(--text2)">'+esc(m.from)+'</p>';
+      h += '</div></div>';
     });
     (d.movies||[]).forEach(function(m){
-      h+='<div class="sr-card">';
-      if(m.image) h+='<img class="sr-img" src="'+m.image+'" alt="">';
-      h+='<div class="sr-info"><h3>'+esc(m.title)+'</h3>';
-      h+='<div class="sr-meta"><span class="sr-tag movie">🎬 Movie</span>';
-      if(m.rating) h+='<span>⭐ '+m.rating+'</span>';
-      if(m.year) h+='<span>'+m.year+'</span>';
-      h+='</div>';
-      if(m.overview) h+='<p style="font-size:12px;color:var(--text2)">'+esc(m.overview.substring(0,120))+'...</p>';
-      h+='</div></div>';
+      h += '<div class="sr-card">';
+      if (m.image) h += '<img class="sr-img" src="'+m.image+'" alt="">';
+      h += '<div class="sr-info"><h3>'+esc(m.title)+'</h3>';
+      h += '<div class="sr-meta"><span class="sr-tag movie">🎬 Movie</span>';
+      if (m.rating) h += '<span>⭐ '+m.rating+'</span>';
+      if (m.year) h += '<span>'+m.year+'</span>';
+      h += '</div>';
+      if (m.overview) h += '<p style="font-size:12px;color:var(--text2)">'+esc(m.overview.substring(0,110))+'…</p>';
+      h += '</div></div>';
     });
     (d.books||[]).forEach(function(b){
-      h+='<div class="sr-card">';
-      if(b.cover) h+='<img class="sr-img" src="'+b.cover+'" alt="">';
-      h+='<div class="sr-info"><h3>'+esc(b.title)+'</h3>';
-      h+='<div class="sr-meta"><span class="sr-tag book">📚 Book</span>';
-      if(b.author) h+='<span>'+esc(b.author)+'</span>';
-      h+='</div>';
-      if(b.read_url) h+='<a href="'+b.read_url+'" target="_blank" style="color:var(--accent);font-size:12px">📖 Read Free</a>';
-      h+='</div></div>';
+      h += '<div class="sr-card">';
+      if (b.cover) h += '<img class="sr-img" src="'+b.cover+'" alt="">';
+      h += '<div class="sr-info"><h3>'+esc(b.title)+'</h3>';
+      h += '<div class="sr-meta"><span class="sr-tag book">📚 Book</span>';
+      if (b.author) h += '<span>'+esc(b.author)+'</span>';
+      h += '</div>';
+      if (b.read_url) h += '<a href="'+b.read_url+'" target="_blank" style="color:var(--accent);font-size:12px">📖 Read Free</a>';
+      h += '</div></div>';
     });
-    if(!total) h='<div class="empty"><span>🔍</span>Kuchh nahi mila</div>';
-    el.innerHTML=h;
+    if (!total) h = '<div class="empty"><span>🔍</span>Kuchh nahi mila</div>';
+    el.innerHTML = h;
   }catch(e){
-    el.innerHTML='<div class="empty"><span>⚠️</span>Search fail hua. Try again.</div>';
+    el.innerHTML = '<div class="empty"><span>⚠️</span>Search fail hua. Try again.</div>';
   }
-};
+}
 
-// --- AI CHAT ---
-N.chat = async function(msg){
-  if(!msg||!msg.trim())return;
-  msg=msg.trim();
-  var msgs = document.getElementById('chatMsgs');
-  msgs.innerHTML+='<div class="msg user"><div class="msg-label">👤 You</div><p>'+esc(msg)+'</p></div>';
-  msgs.innerHTML+='<div class="msg ai"><div class="msg-label">🤖 Thinking...</div><p>⏳</p></div>';
-  msgs.scrollTop=msgs.scrollHeight;
+/* ---------- AI CHAT ---------- */
+async function sendChat(){
+  var inp = $('chatIn');
+  var msg = (inp.value || '').trim();
+  if (!msg) return;
+  inp.value = '';
+  var msgs = $('chatMsgs');
+  msgs.innerHTML += '<div class="msg user"><div class="msg-label">👤 You</div><p>'+esc(msg)+'</p></div>';
+  msgs.innerHTML += '<div class="msg ai"><div class="msg-label">🤖 Thinking…</div><p class="typing"><i></i><i></i><i></i></p></div>';
+  msgs.scrollTop = msgs.scrollHeight;
   try{
-    var r = await fetch(API+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+    var r = await fetch(API+'/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message: msg }) });
     var d = await r.json();
     var last = msgs.lastElementChild;
-    last.innerHTML='<div class="msg-label">'+(d.icon||'⚡')+' '+(d.worker||'MAIN')+'</div><p>'+esc(d.response||'No response').replace(/\\n/g,'<br>')+'</p>';
+    var lines = (d.response || 'No response').split(NL());
+    var ph = '';
+    lines.forEach(function(l){ ph += '<p>'+esc(l)+'</p>'; });
+    last.innerHTML = '<div class="msg-label">'+(d.icon||'⚡')+' '+(d.worker||'MAIN')+'</div>'+ph;
   }catch(e){
     var last = msgs.lastElementChild;
-    last.innerHTML='<div class="msg-label">⚠️ Error</div><p>Connect nahi ho paya. Try again.</p>';
+    last.innerHTML = '<div class="msg-label">⚠️ Error</div><p>Connect nahi ho paya. Try again.</p>';
   }
-  msgs.scrollTop=msgs.scrollHeight;
-};
+  msgs.scrollTop = msgs.scrollHeight;
+}
 
-// --- CATALOG ---
-N.loadCatalog = async function(){
+/* ---------- CATALOG ---------- */
+async function loadCatalog(){
   try{
     var r = await fetch(API+'/api/catalog');
     var d = await r.json();
-    var el = document.getElementById('catalogList');
-    if((d.results||[]).length){
-      var h='';
+    var el = $('catalogList');
+    if ((d.results||[]).length){
+      var h = '';
       d.results.forEach(function(item){
-        h+='<div class="media-card">';
-        if(item.image) h+='<img src="'+item.image+'" alt="">';
-        else h+='<img src="" style="background:var(--card2)" alt="">';
-        h+='<div class="info"><h4>'+esc(item.title)+'</h4>';
-        h+='<div class="meta"><span>'+item.type+'</span><span>'+(item.year||'')+'</span></div>';
-        if(item.description) h+='<p style="font-size:11px;color:var(--text2);margin-top:4px">'+esc(item.description.substring(0,80))+'</p>';
-        h+='</div></div>';
+        h += '<div class="media-card">';
+        if (item.image) h += '<img src="'+item.image+'" alt="">';
+        else h += '<img src="" alt="" style="background:var(--card2)">';
+        h += '<div class="info"><h4>'+esc(item.title)+'</h4>';
+        h += '<div class="meta"><span>'+esc(item.type)+'</span><span>'+(item.year||'')+'</span></div>';
+        if (item.description) h += '<p style="font-size:11px;color:var(--text2);margin-top:4px">'+esc(item.description.substring(0,80))+'…</p>';
+        h += '</div></div>';
       });
-      el.innerHTML=h;
-    }else{
-      el.innerHTML='<div class="empty"><span>📁</span>Catalog khali hai. Add karo!</div>';
+      el.innerHTML = h;
+    } else {
+      el.innerHTML = '<div class="empty"><span>📁</span>Catalog khali hai. Add karo!</div>';
     }
   }catch(e){
-    document.getElementById('catalogList').innerHTML='<div class="empty"><span>📁</span>Load nahi ho paya</div>';
+    $('catalogList').innerHTML = '<div class="empty"><span>📁</span>Load nahi ho paya</div>';
   }
-};
+}
 
-N.addToCatalog = async function(){
-  var title = document.getElementById('catTitle').value.trim();
-  if(!title){alert('Title zaroori hai!');return;}
+async function addToCatalog(){
+  var title = $('catTitle').value.trim();
+  if (!title){ alert('Title zaroori hai!'); return; }
   try{
-    await fetch(API+'/api/catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title,type:document.getElementById('catType').value,description:document.getElementById('catDesc').value.trim()})});
-    document.getElementById('catTitle').value='';
-    document.getElementById('catDesc').value='';
-    N.loadCatalog();
-  }catch(e){alert('Add failed: '+e.message);}
-};
-
-// --- UTILS ---
-function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
-function formatSize(b){if(b>1073741824)return(b/1073741824).toFixed(1)+' GB';if(b>1048576)return(b/1048576).toFixed(1)+' MB';if(b>1024)return(b/1024).toFixed(1)+' KB';return b+' B';}
+    await fetch(API+'/api/catalog', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ title:title, type:$('catType').value, description:$('catDesc').value.trim() }) });
+    $('catTitle').value = '';
+    $('catDesc').value = '';
+    loadCatalog();
+  }catch(e){ alert('Add failed: '+e.message); }
+}
 
 })();
 `;

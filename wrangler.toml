@@ -4,7 +4,7 @@ compatibility_date = "2024-09-01"
 
 [vars]
 ENVIRONMENT = "production"
-WELCOME_MESSAGE = "NJStream v5.0 — Live TV, Movies, Books, Telegram, AI"
+WELCOME_MESSAGE = "NJStream v6.0 — Live TV + Categories, Long Videos, OpenRouter AI"
 TG_CHAT_ID = "-1002514429549"
 
 WORKER_URL = "https://njsoft-stream.njcreative123.workers.dev"
