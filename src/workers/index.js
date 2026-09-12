@@ -2809,7 +2809,19 @@ setTimeout(function(){ njHideLoader(true); }, 4000);
     <div class="video-modal-info">
       <h3 id="vmTitle">Video</h3>
       <span class="vm-size" id="vmSize"></span>
-      <button class="video-modal-close" id="vmClose">✕</button>
+      <button class="video-modal-close" id="vmClose" onclick="closeVideoModal()">✕</button>
+    </div>
+    <div class="vm-mirror hide" id="vmMirror">
+      <div class="vm-mirror-box">
+        <div class="vm-mirror-icon">🛰️</div>
+        <h4>Video mirror nahi hui hai</h4>
+        <p>Ye video <b>20MB se badi</b> hai isliye Telegram Bot API direct nahi de sakta. Mirror hone ke baad yahin play + download hogi.</p>
+        <div class="vm-mirror-actions">
+          <a class="vm-mirror-btn" id="vmMirrorTG" href="#" target="_blank" rel="noopener">🔗 Telegram me kholo</a>
+          <button class="vm-mirror-btn primary" id="vmMirrorReq">📩 Mirror request bhejo</button>
+        </div>
+        <p class="vm-mirror-status" id="vmMirrorStatus"></p>
+      </div>
     </div>
   </div>
 </div>
@@ -3289,6 +3301,7 @@ iframe[src*="t.me"]{width:100%!important;min-height:280px!important}
 .video-modal{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.85);backdrop-filter:blur(8px);animation:fadeIn .2s ease}
 .video-modal.hide{display:none}
 .video-modal-box{background:var(--card-solid);border:1px solid var(--border);border-radius:20px;max-width:90vw;width:800px;max-height:90vh;overflow:hidden;animation:modalIn .25s ease;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.vm-mirror{position:relative;padding:20px}.vm-mirror-box{background:linear-gradient(135deg,rgba(34,211,238,.08),rgba(167,139,250,.08));border:1px solid var(--border);border-radius:16px;padding:22px;text-align:center}.vm-mirror-icon{font-size:38px;margin-bottom:10px}.vm-mirror h4{font-size:17px;font-weight:800;margin-bottom:8px;background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}.vm-mirror p{font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:12px}.vm-mirror-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:14px 0 6px}.vm-mirror-btn{display:inline-flex;align-items:center;gap:6px;padding:11px 18px;border-radius:12px;font-size:13px;font-weight:800;color:var(--text);background:var(--card2);border:1px solid var(--border);cursor:pointer;text-decoration:none;transition:.18s}.vm-mirror-btn:hover{transform:translateY(-1px);border-color:var(--accent)}.vm-mirror-btn.primary{background:var(--grad);color:#fff;border:none;box-shadow:0 4px 16px rgba(34,211,238,.3)}.vm-mirror-btn.primary:disabled{opacity:.7;cursor:default;transform:none}.vm-mirror-status{font-size:12.5px;color:var(--green);min-height:16px;margin-top:8px}
 .video-modal-player{width:100%;aspect-ratio:16/9;background:#000;position:relative}
 .video-modal-player video{width:100%;height:100%;object-fit:contain}
 .video-modal-player iframe{width:100%;height:100%;border:none}
@@ -3650,6 +3663,8 @@ function go(page){
   // Toggle hamburger button state
   var mtoggle = $('mtoggle');
   if (mtoggle) mtoggle.classList.remove('open');
+  // Close video modal if open
+  closeVideoModal();
   
   document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
   document.querySelectorAll('.nav-btn').forEach(function(b){ b.classList.remove('active'); });
@@ -4515,16 +4530,18 @@ async function requestMirror(id, btn){
   }
 }
 
-function openVideoURL(src, title, sizeLabel, mime, rowId){
+function openVideoURL(src, title, sizeLabel, mime, rowId, mirrorFallback){
   var modal = $('videoModal');
   var vid = $('vmVideo');
   var thumb = $('vmThumb');
   var playBtn = $('vmPlayBtn');
   var titleEl = $('vmTitle');
   var sizeEl = $('vmSize');
+  var mirrorEl = $('vmMirror');
   if (!modal) return;
   titleEl.textContent = title || 'Video';
   sizeEl.textContent = sizeLabel || '';
+  if (mirrorEl) mirrorEl.classList.add('hide');
   vid.pause(); vid.src = ''; vid.style.display = 'none';
   thumb.style.display = 'block';
   playBtn.style.display = 'flex';
@@ -4540,12 +4557,44 @@ function openVideoURL(src, title, sizeLabel, mime, rowId){
         vid.play().catch(function(){});
         return;
       }
-      titleEl.textContent = title + ' — Telegram me khol rahe hain';
+      titleEl.textContent = title + ' — play nahi ho raha';
+      if (mirrorFallback && mirrorEl){
+        vid.style.display = 'none';
+        thumb.style.display = 'none';
+        playBtn.style.display = 'none';
+        renderMirrorFallback(rowId, title, sizeLabel);
+        return;
+      }
       window.open('https://t.me/hindidubbedfilmmovie/' + encodeURIComponent(rowId || ''), '_blank');
     };
     vid.src = src;
     vid.play().catch(function(){});
   };
+}
+
+function renderMirrorFallback(id, title, sizeLabel){
+  var mirrorEl = $('vmMirror');
+  var tgLink = $('vmMirrorTG');
+  var reqBtn = $('vmMirrorReq');
+  var status = $('vmMirrorStatus');
+  if (!mirrorEl) return;
+  mirrorEl.classList.remove('hide');
+  if (tgLink) tgLink.href = 'https://t.me/hindidubbedfilmmovie/' + encodeURIComponent(id || '');
+  if (reqBtn){
+    reqBtn.onclick = function(){
+      reqBtn.disabled = true;
+      reqBtn.textContent = '📨 Bheja ja raha hai…';
+      if (status) status.textContent = '';
+      fetch(API + '/api/media/request', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ id: String(id) }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        reqBtn.textContent = '✅ Request bhej di gayi';
+        if (d && d.ok){ if (status) status.textContent = 'Admin mirror karne ke baad yahin play hogi. 🕐'; }
+        else { reqBtn.disabled = false; reqBtn.textContent = '📩 Phir request karo'; if (status) status.textContent = (d && d.error) ? d.error : 'Try again'; }
+      })
+      .catch(function(e){ reqBtn.disabled = false; reqBtn.textContent = '📩 Request karo'; if (status) status.textContent = e.message; });
+    };
+  }
 }
 
 document.addEventListener('click', function(e){
@@ -4620,8 +4669,13 @@ function openVideoModal(videoEl){
 function closeVideoModal(){
   var modal = $('videoModal');
   var vid = $('vmVideo');
+  var mirror = $('vmMirror');
   if (modal) modal.classList.add('hide');
-  if (vid){ vid.pause(); vid.src = ''; vid.style.display = 'none'; }
+  if (vid){ vid.pause(); vid.removeAttribute('src'); vid.style.display = 'none'; vid.onerror = null; }
+  if (mirror) mirror.classList.add('hide');
+  // Reset play button state
+  var pb = $('vmPlayBtn');
+  if (pb) pb.style.display = 'flex';
 }
 
 // Bind modal close
@@ -4930,9 +4984,17 @@ async function libPlay(id, title){
   try {
     var r = await fetch(API + '/api/media/' + encodeURIComponent(id) + '?probe=1', { cache: 'no-store' });
     var d = await r.json();
-    var src = (d && d.available) ? (API + '/api/media/' + encodeURIComponent(id) + '?proxy=1') : (API + '/api/telegram/proxy?msg_id=' + encodeURIComponent(id));
-    openVideoURL(src, title || 'Video', (d && d.sizeLabel) || '', (d && d.mime) || 'video/mp4', id);
-  } catch(e){ openVideoURL(API + '/api/telegram/proxy?msg_id=' + encodeURIComponent(id), title || 'Video', '', 'video/mp4', id); }
+    if (d && d.available){
+      openVideoURL(API + '/api/media/' + encodeURIComponent(id) + '?proxy=1', title || 'Video', (d && d.sizeLabel) || '', (d && d.mime) || 'video/mp4', id);
+    } else {
+      // Video mirror nahi hui — mirror dialog dikhao, broken player nahi
+      var sizeLabel = (d && d.sizeLabel) || '';
+      var fallbackSrc = API + '/api/telegram/proxy?msg_id=' + encodeURIComponent(id);
+      openVideoURL(fallbackSrc, title || 'Video', sizeLabel, (d && d.mime) || 'video/mp4', id, true);
+    }
+  } catch(e){
+    openVideoURL(API + '/api/telegram/proxy?msg_id=' + encodeURIComponent(id), title || 'Video', '', 'video/mp4', id, true);
+  }
 }
 function libDownload(id){
   var a = document.createElement('a');
