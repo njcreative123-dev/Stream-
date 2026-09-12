@@ -1141,11 +1141,15 @@ async function handleTelegramIngest(request, env) {
 // LIVE TV
 // ============================================================
 async function handleLiveTV(url, env) {
+  const onlyWorking = url.searchParams.get('all') !== '1';
   const kvKey = 'livetv_all';
   if (env.KV_STORE) {
     try {
       const cached = await env.KV_STORE.get(kvKey, { type: 'json' });
-      if (cached && cached.channels?.length > 0) return json(cached);
+      if (cached && cached.channels?.length > 0) {
+        const cch = onlyWorking ? (cached.channels || []).filter(c => c.working) : cached.channels;
+        return json({ ...cached, channels: cch, total: cch.length, working: cch.filter(c => c.working).length, hindi: cch.filter(c => c.hindi).length, onlyWorking: onlyWorking });
+      }
     } catch (e) {}
   }
 
@@ -1185,16 +1189,29 @@ async function handleLiveTV(url, env) {
     }
   }
 
+  // Sirf verified working channels default; ?all=1 se poori list (admin)
+  const shown = onlyWorking ? merged.filter(c => c.working) : merged;
   const result = {
-    total: merged.length,
-    working: merged.filter(c => c.working).length,
-    hindi: hindi.length,
-    channels: merged,
+    total: shown.length,
+    working: shown.filter(c => c.working).length,
+    hindi: shown.filter(c => c.hindi).length,
+    channels: shown,
     categories: { counts: categories, working: catWorking },
+    onlyWorking: onlyWorking,
   };
 
   if (env.KV_STORE) {
-    try { await env.KV_STORE.put(kvKey, JSON.stringify(result), { expirationTtl: 1800 }); } catch (e) {}
+    // Cache mein poori list rakho (health tally ke liye), response sirf working
+    try {
+      await env.KV_STORE.put(kvKey, JSON.stringify({
+        total: merged.length,
+        working: merged.filter(c => c.working).length,
+        hindi: hindi.length,
+        channels: merged,
+        categories: { counts: categories, working: catWorking },
+        onlyWorking: false,
+      }), { expirationTtl: 1800 });
+    } catch (e) {}
   }
   return json(result);
 }
@@ -2532,6 +2549,7 @@ setTimeout(function(){ njHideLoader(true); }, 4000);
         <button class="chip" data-mtype="top_rated">⭐ Top Rated</button>
         <button class="chip" data-mtype="now_playing">🎬 Now Playing</button>
         <button class="chip" data-mtype="upcoming">📅 Upcoming</button>
+        <button class="chip tg-tab" data-mtype="tg">📥 Telegram Movies</button>
       </div>
       <div id="moviesGrid" class="media-grid"><div class="loading">Loading movies…</div></div>
     </section>
@@ -3034,17 +3052,49 @@ iframe[src*="t.me"]{width:100%!important;min-height:280px!important}
 .lib-actions button{flex:1;padding:9px 8px;border:none;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;transition:.15s;color:#fff;background:var(--grad)}
 .lib-actions button.alt{background:var(--card2);color:var(--accent);border:1px solid var(--border)}
 .lib-actions button:hover{filter:brightness(1.15)}
-/* Roaming 3D agents overlay */
+/* Walking human-like agents overlay (bottom strip — logo/top kabhi cover nahi) */
 .roam-layer{position:fixed;inset:0;pointer-events:none;z-index:90;overflow:hidden}
-.roam-agent{position:absolute;pointer-events:auto;cursor:pointer;transition:transform 1.6s cubic-bezier(.25,.9,.35,1.2);will-change:transform}
-.roam-bubble{position:absolute;left:50%;bottom:104%;transform:translateX(-50%);background:var(--card-solid,#1e293b);color:var(--text,#e2e8f0);border:1px solid var(--border,rgba(148,163,184,.25));padding:7px 12px;border-radius:12px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 6px 20px rgba(0,0,0,.35);opacity:0;transition:.25s;pointer-events:none}
-.roam-agent:hover .roam-bubble{opacity:1}
-.roam-orb{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:26px;background:linear-gradient(135deg,rgba(99,102,241,.9),rgba(34,211,238,.9));box-shadow:0 8px 26px rgba(99,102,241,.45),0 0 0 4px rgba(255,255,255,.06);position:relative;animation:roamFloat 3.4s ease-in-out infinite}
-.roam-orb::after{content:'';position:absolute;inset:-8px;border-radius:50%;border:2px dashed rgba(255,255,255,.25);animation:roamSpin 14s linear infinite}
-.roam-orb.act{background:linear-gradient(135deg,rgba(244,63,94,.92),rgba(236,72,153,.92));box-shadow:0 8px 26px rgba(244,63,94,.5)}
-@keyframes roamFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
-@keyframes roamSpin{to{transform:rotate(360deg)}}
-@media(max-width:600px){.roam-orb{width:46px;height:46px;font-size:21px}.roam-bubble{display:none}}
+.walk-agent{position:fixed;bottom:6px;pointer-events:auto;cursor:pointer;transition:left 2.2s cubic-bezier(.33,.7,.2,1);z-index:92;filter:drop-shadow(0 12px 16px rgba(0,0,0,.38));user-select:none}
+.wa-char{width:56px;height:82px;position:relative;transform-origin:bottom center}
+.wa-shadow{position:absolute;bottom:-3px;left:50%;transform:translateX(-50%);width:44px;height:8px;border-radius:50%;background:rgba(0,0,0,.4);filter:blur(2px)}
+.wa-head{position:absolute;top:0;left:50%;transform:translateX(-50%);width:30px;height:28px;background:linear-gradient(135deg,#ffd9a8,#f7b97c);border-radius:46% 46% 42% 42%;z-index:3}
+.wa-hair{position:absolute;top:-3px;left:-2px;width:34px;height:13px;background:linear-gradient(135deg,#3b2f2f,#241d1d);border-radius:50% 50% 30% 30%/60% 60% 40% 40%;z-index:4}
+.wa-emoji{position:absolute;top:-9px;right:-7px;font-size:13px;z-index:5;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))}
+.wa-eye{position:absolute;top:12px;width:4px;height:5px;background:#1c1917;border-radius:50%}
+.wa-eye.l{left:7px}.wa-eye.r{right:7px}
+.wa-mouth{position:absolute;top:19px;left:50%;transform:translateX(-50%);width:7px;height:4px;background:#a05c3c;border-radius:0 0 6px 6px}
+.wa-body{position:absolute;top:26px;left:50%;transform:translateX(-50%);width:38px;height:34px;background:linear-gradient(135deg,rgba(99,102,241,.95),rgba(56,189,248,.95));border-radius:12px 12px 8px 8px;z-index:2}
+.wa-torso{width:100%;height:100%;position:relative}
+.wa-arm{position:absolute;top:8px;width:8px;height:22px;background:#2c3e50;border-radius:6px;transform-origin:top center}
+.wa-arm.l{left:-4px}.wa-arm.r{right:-4px}
+.walk-agent.walking .wa-arm.l{animation:waArmL .5s ease-in-out infinite}
+.walk-agent.walking .wa-arm.r{animation:waArmR .5s ease-in-out infinite}
+@keyframes waArmL{0%,100%{transform:rotate(18deg)}50%{transform:rotate(-18deg)}}
+@keyframes waArmR{0%,100%{transform:rotate(-18deg)}50%{transform:rotate(18deg)}}
+.wa-legs{position:absolute;top:56px;left:50%;transform:translateX(-50%);width:38px;height:20px;z-index:1}
+.wa-leg{position:absolute;top:0;width:9px;height:22px;background:#1e293b;border-radius:5px;transform-origin:top center}
+.wa-leg.l{left:2px}.wa-leg.r{right:2px}
+.walk-agent.walking .wa-leg.l{animation:waLegL .5s ease-in-out infinite}
+.walk-agent.walking .wa-leg.r{animation:waLegR .5s ease-in-out infinite}
+@keyframes waLegL{0%,100%{transform:rotate(20deg) translateY(0)}50%{transform:rotate(-20deg) translateY(-1px)}}
+@keyframes waLegR{0%,100%{transform:rotate(-20deg) translateY(0)}50%{transform:rotate(20deg) translateY(-1px)}}
+.wa-body{animation:none}
+.walk-agent.idle .wa-char{animation:waLook 2.4s ease-in-out infinite}
+@keyframes waLook{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+.walk-agent.wave .wa-arm.r{animation:waWave .9s ease-in-out 3}
+@keyframes waWave{0%,100%{transform:rotate(0deg)}50%{transform:rotate(120deg)}}
+.walk-agent.look .wa-head{animation:waTilt .8s ease-in-out infinite}
+@keyframes waTilt{0%,100%{transform:translateX(-50%) rotate(0deg)}50%{transform:translateX(-50%) rotate(8deg)}}
+.walk-agent.think .wa-head::after{content:'';position:absolute;top:-12px;right:2px;width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.85)}
+.walk-agent.listen .wa-head{animation:waListenBounce .6s ease-in-out infinite}
+@keyframes waListenBounce{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-3px)}}
+.wa-bubble{position:absolute;left:50%;bottom:104%;transform:translateX(-50%);background:rgba(20,26,40,.96);color:#e2e8f0;border:1px solid rgba(148,163,184,.3);padding:6px 11px;border-radius:12px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.45);pointer-events:none;max-width:220px;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.wa-dots{display:none;gap:3px}
+.wa-dots i{width:5px;height:5px;border-radius:50%;background:#22d3ee;animation:blink 1s infinite}
+.wa-dots i:nth-child(2){animation-delay:.2s}.wa-dots i:nth-child(3){animation-delay:.4s}
+.wa-mic{position:absolute;top:-12px;left:50%;transform:translateX(-50%);width:22px;height:22px;border-radius:50%;border:1px solid rgba(148,163,184,.4);background:rgba(30,41,59,.95);color:#22d3ee;font-size:11px;cursor:pointer;display:none;align-items:center;justify-content:center;z-index:6;padding:0}
+.walk-agent:hover .wa-mic{display:flex}
+@media(max-width:600px){.wa-char{width:44px;height:66px}.wa-head{width:26px;height:24px}.wa-body{width:32px;height:28px}.wa-leg{width:8px;height:18px}.wa-bubble{font-size:10px;max-width:150px}}
 @media(max-width:820px){.lib-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
 .media-card .info{padding:10px 12px}
 .media-card h4{font-size:12px;font-weight:700;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -4055,7 +4105,6 @@ function buildTVChips(d){
   names.forEach(function(n){
     h += '<button class="chip'+(state.tvCat===n?' active':'')+'" data-tvcat="'+n+'">'+n+' <span class="chip-w">'+(wk[n]||0)+'</span>/'+(counts[n]||0)+'</button>';
   });
-  h += '<button class="chip toggle'+(state.tvWorking?' on':'')+'" data-work>✅ Working Only</button>';
   $('tvFilters').innerHTML = h;
 }
 
@@ -4490,6 +4539,20 @@ async function loadMovies(type, btn){
   if (btn) btn.classList.add('active');
   $('moviesGrid').innerHTML = '<div class="loading">Loading...</div>';
   try{
+    if (type === 'tg'){
+      // Telegram group ke videos — auto thumbnail + play/download
+      var tr = await fetch(API+'/api/telegram/library?cat=videos&limit=200', { cache: 'no-store' });
+      var td = await tr.json();
+      var items = td.items || [];
+      var tel = $('moviesGrid');
+      if (items.length){
+        var th = '<div class="lib-grid"><div class="lib-toolbar" style="grid-column:1/-1;margin-bottom:4px"><span style="font-size:12.5px;color:var(--text2)">🎥 Ye videos Telegram group se automatically index hue hain — thumbnail, play, download sab ready</span></div>';
+        items.forEach(function(it){ th += libCard(it); });
+        th += '</div>';
+        tel.innerHTML = th;
+      } else { tel.innerHTML = '<div class="empty"><span>' + String.fromCodePoint(0x1F3AC) + '</span>Telegram movies nahi milin</div>'; }
+      return;
+    }
     var r = await fetch(API+'/api/movies?type='+type);
     var d = await r.json();
     var el = $('moviesGrid');
@@ -4800,100 +4863,194 @@ document.addEventListener('change', function(e){
   if (e.target && e.target.id === 'apkSort'){ libState.apk.sort = e.target.value; loadTgLibrary('apk'); }
 });
 
-/* ---------- ROAMING 3D AGENTS (free movement across site) ---------- */
+/* ---------- WALKING 3D AGENTS (human-like walk + gesture + voice) ---------- */
 var ROAM_DEFS = [
-  { id: 'nj', em: '🧠', label: 'NJ — Head of House', page: 'nj' },
-  { id: 'telly', em: '📺', label: 'Telly — TV Expert', page: 'tv' },
-  { id: 'sathi', em: '📱', label: 'Sathi — Telegram Data', page: 'tg' },
-  { id: 'filmy', em: '🎬', label: 'Filmy — Movies', page: 'movies' },
-  { id: 'kitabi', em: '📚', label: 'Kitabi — Books', page: 'books' },
-  { id: 'khojo', em: '🔍', label: 'Khojo — Search', page: 'search' },
+  { id:'nj', em:'🧠', label:'NJ', page:'nj', title:'NJ — Head of House', tips:['Main poore ghar ka dhyan rakhta hoon! 🏠','Koi kaam ho toh batao bhai!','Family sabse pehle! 💞'], chat:'Kuchh bhi poocho!' },
+  { id:'telly', em:'📺', label:'Telly', page:'tv', title:'Telly — TV Expert', tips:['Sirf LIVE channels dikhata hoon! 📡','162 verified channels ready hain!','Hindi news + movies sab live!'],
+    chat:'Channel list dikhao' },
+  { id:'sathi', em:'📱', label:'Sathi', page:'tg', title:'Sathi — Telegram Data', tips:['Telegram data sab accessible hai! 📱','Videos, books, files sab ready!','186 videos index ho gayi hain! 🎞️'], chat:'Telegram data dikhao' },
+  { id:'filmy', em:'🎬', label:'Filmy', page:'movies', title:'Filmy — Movie Buff', tips:['Aaj ki movie pakki hai! 🍿','Telegram Movies tab bhi yahin hai!','TMDB se fresh picks! ⭐'], chat:'Movie suggest karo' },
+  { id:'kitabi', em:'📚', label:'Kitabi', page:'books', title:'Kitabi — Book Reader', tips:['Kitabein yahan padho — free! 📖','PDF + EPUB + in-site reader!','Bookmark aur notes bhi! ✍️'], chat:'Kitab suggest karo' },
+  { id:'khojo', em:'🔍', label:'Khojo', page:'search', title:'Khojo — Search Master', tips:['Kuchh bhi dhundho — sab milega! 🔍','Movies + books + Telegram ek saath!','Khojo, toh pao! ✨'], chat:'Kuchh dhundho' },
 ];
 var roamMapByPage = { home:['nj','telly','filmy','kitabi','sathi','khojo'], tv:['telly'], tg:['sathi'], tgv:['sathi'], apk:['sathi','telly'], movies:['filmy'], books:['kitabi'], search:['khojo'], nj:['nj'], ai:['nj'], family:['nj'], catalog:['nj'], login:['nj'] };
 var roamEls = {};
-var roamSpots = [];
 var _roamInit = false;
+
+function waCharMarkup(em){
+  return '<div class="wa-shadow"></div>' +
+    '<div class="wa-head">' +
+      '<div class="wa-hair"></div>' +
+      '<div class="wa-emoji">' + em + '</div>' +
+      '<div class="wa-eye l"></div><div class="wa-eye r"></div>' +
+      '<div class="wa-mouth"></div>' +
+    '</div>' +
+    '<div class="wa-body">' +
+      '<div class="wa-torso"><div class="wa-arm l"></div><div class="wa-arm r"></div></div>' +
+    '</div>' +
+    '<div class="wa-legs"><div class="wa-leg l"></div><div class="wa-leg r"></div></div>';
+}
 function initRoamAgents(){
   if (_roamInit) return;
   _roamInit = true;
   var layer = $('roamLayer');
   if (!layer) return;
-  var hint = '<div class="roam-bubble"></div><div class="roam-orb"></div>';
   ROAM_DEFS.forEach(function(def){
     var el = document.createElement('div');
-    el.className = 'roam-agent';
-    el.id = 'roam-' + def.id;
-    el.setAttribute('data-roam', def.id);
-    el.innerHTML = hint;
-    el.querySelector('.roam-orb').textContent = def.em;
-    el.querySelector('.roam-bubble').textContent = def.label;
-    el.addEventListener('click', function(){ roamGo(def); });
+    el.className = 'walk-agent';
+    el.id = 'walk-' + def.id;
+    el.setAttribute('data-walk', def.id);
+    el.innerHTML = '<div class="wa-bubble"><span class="wa-bubble-txt">' + def.label + '</span><span class="wa-dots"><i></i><i></i><i></i></span></div>' + waCharMarkup(def.em) + '<button class="wa-mic" title="Voice se baat karo">🎙️</button>';
+    el.addEventListener('click', function(ev){
+      if (ev.target && ev.target.closest && ev.target.closest('.wa-mic')){ waListen(def); return; }
+      waInteract(def, el);
+    });
+    el.addEventListener('mouseenter', function(){ el.classList.add('look'); });
+    el.addEventListener('mouseleave', function(){ el.classList.remove('look'); });
     layer.appendChild(el);
     roamEls[def.id] = el;
   });
-  // Precompute dock spots per viewport (margins safe for content + sidebar)
-  roamSpots = [];
-  var W = 210, H = 120;
-  var margin = 14;
-  // Left-mid (beside sidebar on mobile/desktop), right-mid, bottom-left, bottom-right, top-left, top-right
-  roamSpots.push({ left: margin, top: '38%' });
-  roamSpots.push({ left: 'calc(100% - ' + (W + margin) + 'px)', top: '28%' });
-  roamSpots.push({ left: margin, top: 'calc(100% - ' + (H + margin) + 'px)' });
-  roamSpots.push({ left: 'calc(100% - ' + (W + margin) + 'px)', top: 'calc(100% - ' + (H + margin) + 'px)' });
-  roamSpots.push({ left: margin, top: margin + 60 });
-  roamSpots.push({ left: 'calc(100% - ' + (W + margin) + 'px)', top: margin + 60 });
-  roamRefresh(state.page);
-  setInterval(function(){ roamStep(); }, 4200);
+  roamRefresh(typeof state !== 'undefined' ? state.page : 'home');
+  // Continuous human-like walking
+  setInterval(function(){ walkStep(); }, 2600);
+  setInterval(function(){ waRandomTalk(); }, 14000);
+}
+function waBounds(){
+  var w = window.innerWidth;
+  var main = document.querySelector('.main');
+  if (main){ var r = main.getBoundingClientRect(); if (r && r.width > 200) w = r.width; }
+  return { min: 16, max: Math.max(80, w - 110) };
 }
 function roamRefresh(page){
   if (!roamEls.nj) return;
   var ids = roamMapByPage[page] || ['nj'];
   var active = {};
   ids.forEach(function(id){ active[id] = 1; });
-  var count = Object.keys(roamEls).length;
-  var i = 0;
+  var laneMap = {};
   ROAM_DEFS.forEach(function(def){
     var el = roamEls[def.id];
     if (!el) return;
     if (active[def.id]){
       el.style.display = 'block';
-      placeRoam(el, i);
-      i++;
-    } else {
-      el.style.display = 'none';
-    }
+      laneMap[def.id] = Object.keys(laneMap).length;
+      if (!el.dataset.x){ el.dataset.x = String(20 + Math.floor(Math.random() * 60)); el.style.left = el.dataset.x + 'px'; }
+      el.dataset.dir = el.dataset.dir || '1';
+    } else { el.style.display = 'none'; }
   });
+  ROAM_DEFS.forEach(function(def){
+    var el = roamEls[def.id];
+    if (!el || el.style.display === 'none') return;
+    // Lanes: bottom strip — kabhi logo/top par nahi
+    var lane = laneMap[def.id] || 0;
+    el.style.bottom = (6 + lane * 16) + 'px';
+  });
+  walkStep();
 }
-function placeRoam(el, idx){
-  var spot = roamSpots[idx % roamSpots.length];
-  el.style.left = spot.left;
-  el.style.top = spot.top;
-}
-function roamStep(){
-  if (!roamEls.nj) return;
+function walkStep(){
   var page = (typeof state !== 'undefined' && state.page) || 'home';
   var ids = roamMapByPage[page] || ['nj'];
-  var shown = ROAM_DEFS.filter(function(d){ return ids.indexOf(d.id) >= 0; });
-  shown.forEach(function(def, idx){
-    // move to a different spot (not the same one)
-    var cur = roamEls[def.id];
-    if (!cur) return;
-    var n = roamSpots.length;
-    var j = Math.floor(Math.random() * (n - 1));
-    var from = idx % n;
-    var spot = roamSpots[(from + 1 + j) % n];
-    cur.style.left = spot.left;
-    cur.style.top = spot.top;
+  ROAM_DEFS.forEach(function(def){
+    var el = roamEls[def.id];
+    if (!el || el.style.display === 'none') return;
+    // Kabhi-kabhi ruk kar sochta hai / idhar-udhar dekhta hai
+    if (Math.random() < 0.22){
+      el.classList.add('idle');
+      setTimeout(function(){ el.classList.remove('idle'); }, 1400);
+      return;
+    }
+    var b = waBounds();
+    var x = parseInt(el.dataset.x || '20', 10);
+    var dir = parseInt(el.dataset.dir || '1', 10);
+    var step = 70 + Math.floor(Math.random() * 130);
+    x += dir * step;
+    if (x >= b.max){ x = b.max; dir = -1; }
+    if (x <= b.min){ x = b.min; dir = 1; }
+    el.dataset.x = String(x);
+    el.dataset.dir = String(dir);
+    el.style.left = x + 'px';
+    el.style.transform = 'scaleX(' + dir + ')';
+    el.classList.add('walking');
+    setTimeout(function(){ if (el) el.classList.remove('walking'); }, 1300);
   });
 }
-function roamGo(def){
+function waBubble(el, txt, thinking){
+  var b = el.querySelector('.wa-bubble-txt');
+  var d = el.querySelector('.wa-dots');
+  if (b) b.textContent = txt;
+  if (d) d.style.display = thinking ? 'inline-flex' : 'none';
+}
+function waSpeak(text){
   try {
-    if (def && def.page && typeof go === 'function') go(def.page);
+    if (window.speechSynthesis){
+      speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text || '');
+      u.lang = 'hi-IN';
+      u.rate = 1.02;
+      var voices = speechSynthesis.getVoices();
+      var hv = voices.filter(function(v){ return /hi|hin/i.test(v.lang); });
+      if (hv && hv.length) u.voice = hv[Math.floor(Math.random() * hv.length)];
+      speechSynthesis.speak(u);
+    }
   } catch(e){}
 }
-// Roaming agents start after app init
+function waInteract(def, el){
+  el.classList.add('wave');
+  el.classList.add('think');
+  waBubble(el, 'Soch raha hoon…', true);
+  setTimeout(function(){
+    el.classList.remove('think');
+    var tip = def.tips[Math.floor(Math.random() * def.tips.length)];
+    waBubble(el, tip, false);
+    waSpeak(def.title + '. ' + tip);
+  }, 1500);
+  setTimeout(function(){ el.classList.remove('wave'); }, 4500);
+  setTimeout(function(){
+    try { if (def.page && typeof go === 'function') go(def.page); } catch(e){}
+  }, 3600);
+}
+function waRandomTalk(){
+  var page = (typeof state !== 'undefined' && state.page) || 'home';
+  var ids = roamMapByPage[page] || [];
+  if (!ids.length) return;
+  var def = ROAM_DEFS[Math.floor(Math.random() * ids.length)];
+  var el = roamEls[def.id];
+  if (!el || el.style.display === 'none') return;
+  var tip = def.tips[Math.floor(Math.random() * def.tips.length)];
+  waBubble(el, tip, false);
+  setTimeout(function(){ if (el) waBubble(el, def.label, false); }, 6000);
+}
+function waListen(def){
+  var el = roamEls[def.id];
+  if (!el) return;
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR){ waBubble(el, 'Voice browser mein support nahi — Chrome use karo', false); return; }
+  var rec = new SR();
+  rec.lang = 'hi-IN';
+  rec.interimResults = false;
+  el.classList.add('listen');
+  waBubble(el, '🎙️ Sun raha hoon… bolo!', false);
+  rec.onresult = function(ev){
+    var txt = '';
+    for (var i = 0; i < ev.results.length; i++) txt += ev.results[i][0].transcript;
+    el.classList.remove('listen');
+    waBubble(el, '🗣️ "' + String(txt).slice(0, 70) + '"', false);
+    waSpeak('Achha, main samajh gaya bhai.');
+    try {
+      if (typeof go === 'function') go('ai');
+      setTimeout(function(){
+        var inp = $('chatIn');
+        if (inp){ inp.value = txt; if (typeof sendChat === 'function') sendChat(); }
+      }, 900);
+    } catch(e){}
+  };
+  rec.onerror = function(){ el.classList.remove('listen'); waBubble(el, '❌ Sun nahi paya — dobara kaho', false); };
+  rec.onend = function(){ el.classList.remove('listen'); };
+  try { rec.start(); } catch(e){ el.classList.remove('listen'); waBubble(el, '❌ Mic allow karo', false); }
+}
+// Walking agents start after app init
 setTimeout(function(){ try { initRoamAgents(); } catch(e){} }, 800);
 setTimeout(function(){ try { initRoamAgents(); } catch(e){} }, 2500);
+
 
 /* ---------- CATALOG ---------- */
 async function loadCatalog(){
