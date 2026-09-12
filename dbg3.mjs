@@ -1,0 +1,45 @@
+import { chromium } from 'playwright';
+const BASE = 'https://njsoft-stream.njcreative123.workers.dev';
+const MIRROR = `${BASE}/api/media/990001?proxy=1`;
+const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+body{margin:0;background:#0b0f1a;color:#e8ecf8;font-family:sans-serif}
+video{width:100%;max-width:960px;background:#000}
+#log{white-space:pre-wrap;font-family:monospace;font-size:12px;background:#11162a;padding:12px;max-width:960px;width:100%;max-height:260px;overflow:auto}
+</style></head><body>
+<h2>NJStream Long Video Proof — 990001 (45 MB, 120s)</h2>
+<video id="v" controls preload="auto" playsinline crossorigin="anonymous" src="${MIRROR}"></video>
+<div id="log"></div>
+<script>
+const v=document.getElementById('v'); const log=document.getElementById('log');
+function L(s){log.textContent += s+'\\n';}
+window.__started=false;
+window.runTest = async () => {
+  L('--- TEST START ---');
+  L('duration='+v.duration+'s readyState='+v.readyState);
+  L('resolution='+v.videoWidth+'x'+v.videoHeight);
+  L('buffered='+(v.buffered.length? v.buffered.end(v.buffered.length-1).toFixed(1):'0')+'s');
+  await v.play().catch(e=>L('play err '+e.message));
+  await new Promise(r=>setTimeout(r,6000));
+  L('after 6s: currentTime='+v.currentTime.toFixed(2)+' paused='+v.paused+' readyState='+v.readyState);
+  L('SEEK -> 60s');
+  try { const p=new Promise((res,rej)=>{v.onseeked=res; setTimeout(()=>rej(new Error('seek timeout')),15000);}); v.currentTime=60; await p; } catch(e){ L('seek err '+e.message); }
+  L('after seek: currentTime='+v.currentTime.toFixed(2)+' readyState='+v.readyState);
+  await new Promise(r=>setTimeout(r,5000));
+  L('after 5s more: currentTime='+v.currentTime.toFixed(2)+' playing='+(!v.paused));
+  L('final buffered='+(v.buffered.length? v.buffered.end(v.buffered.length-1).toFixed(1):'0')+'s');
+  L('--- TEST END ---');
+  window.__result = { done: true };
+};
+v.addEventListener('loadedmetadata',()=>L('EVENT loadedmetadata ready='+v.readyState));
+v.addEventListener('error',()=>L('VIDEO ERROR code='+v.error?.code+' msg='+v.error?.message));
+</script></body></html>`;
+const b = await chromium.launch({ headless: true, args: ['--no-sandbox','--autoplay-policy=no-user-gesture-required'] });
+const p = await b.newPage({ viewport: { width: 900, height: 700 } });
+p.on('pageerror', e => console.log('PAGEERR:', e.message));
+p.on('console', m => console.log('CONSOLE', m.type(), m.text().slice(0,160)));
+await p.setContent(html, { waitUntil: 'load' }).catch(e=>console.log('setContent err', e.message));
+await new Promise(r=>setTimeout(r,3000));
+console.log('typeof runTest =', await p.evaluate(() => typeof window.runTest));
+console.log('readyState =', await p.evaluate(() => document.getElementById('v').readyState));
+console.log('html len =', (await p.evaluate(() => document.documentElement.outerHTML)).length);
+await b.close();

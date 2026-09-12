@@ -244,6 +244,8 @@ export default {
       if (path === '/api/agents/skills') return json({ skills: Object.entries(AGENT_SKILLS).map(([k, v]) => ({ name: k, desc: v.desc, args: v.args })) });
       if (path === '/api/agents/run' && method === 'POST') return handleAgentRun(request, env);
       if (path === '/api/agents/room/write' && method === 'POST') return handleRoomWrite(request, env);
+      // Agent memory — har agent ka apna chhota neural network (KV facts)
+      if (path === '/api/agents/memory') return handleAgentMemory(request, url, env);
       if (path === '/api/agents/room/read' && method === 'GET') return handleRoomRead(url, env);
       if (path === '/api/books/read') return handleBookRead(url, env);
       if (path === '/api/live-tv/health' && method === 'POST') return handleLiveTVHealth(request, env);
@@ -1974,6 +1976,46 @@ function urlQuery(request, name) {
 }
 
 // ============================================================
+// AGENT MEMORY — har agent ka apna growing neural network
+// ============================================================
+async function handleAgentMemory(request, url, env) {
+  if (!env.KV_STORE) return json({ ok: false, error: 'KV required' }, 500);
+  const agent = String(url.searchParams.get('agent') || 'main').replace(/[^a-z]/gi, '').toLowerCase() || 'main';
+  const key = 'mem:' + agent;
+  if (request.method === 'GET') {
+    const raw = await env.KV_STORE.get(key, { type: 'json' }).catch(() => null);
+    return json({ ok: true, agent: agent, facts: (raw && raw.facts) || [], updated: raw ? raw.updated : 0 });
+  }
+  if (request.method === 'POST') {
+    let body;
+    try { body = await request.json(); } catch (e) { return json({ ok: false, error: 'json body required' }, 400); }
+    const fact = String(body.fact || '').trim();
+    if (!fact) return json({ ok: false, error: 'fact required' }, 400);
+    const raw = await env.KV_STORE.get(key, { type: 'json' }).catch(() => null);
+    const facts = (raw && raw.facts) || [];
+    facts.unshift({ fact: fact.slice(0, 200), ts: Date.now() });
+    const capped = facts.slice(0, 120);
+    await env.KV_STORE.put(key, JSON.stringify({ facts: capped, updated: Date.now() }));
+    return json({ ok: true, agent: agent, count: capped.length });
+  }
+  return json({ ok: false, error: 'method not allowed' }, 405);
+}
+
+// Family session ke baad har agent apna seekha-hua fact memory mein daalta hai
+async function agentRemember(agent, text, env) {
+  if (!env || !env.KV_STORE || !text) return;
+  const clean = String(text).replace(/\s+/g, ' ').slice(0, 160);
+  if (!clean) return;
+  const key = 'mem:' + agent;
+  try {
+    const raw = await env.KV_STORE.get(key, { type: 'json' }).catch(() => null);
+    const facts = (raw && raw.facts) || [];
+    facts.unshift({ fact: clean, ts: Date.now() });
+    await env.KV_STORE.put(key, JSON.stringify({ facts: facts.slice(0, 120), updated: Date.now() }));
+  } catch (e) {}
+}
+
+// ============================================================
 // FAMILY CHAT — Agents talking to each other
 // ============================================================
 const FAMILY_AGENDA = [
@@ -2099,6 +2141,8 @@ async function runFamilySession(env) {
   const all = hist.concat([starter, ...results]).slice(-80);
   const session = { messages: all, updated: Date.now(), lastSession: { topic: topic.topic, started: starter.ts, turns: results.length + 1, members: results.map(r => r.emoji + ' ' + r.name) } };
   await env.KV_STORE.put('family_chat', JSON.stringify(session));
+  // Har agent apni baat ka essence memory (neural network) mein store karta hai
+  results.forEach(function(r){ if (r && r.agent) agentRemember(r.agent, r.text, env).catch(function(){}); });
   return { ok: true, session, newMessages: [starter, ...results] };
 }
 
@@ -2411,6 +2455,22 @@ setTimeout(function(){ njHideLoader(true); }, 4000);
         </div>
       </div>
 
+      <!-- FAMILY WALL — sab agents apne ghar mein (3D, fixed) -->
+      <div class="home-section">
+        <div class="hs-head">
+          <h2 class="section-title">🏡 AI Family — Apne Ghar Mein</h2>
+          <button class="hs-all" data-nav="family">Family Room →</button>
+        </div>
+        <div class="fam-wall" id="famWall">
+          <div class="fam-member" data-nav="nj"><div class="agent3d avatar-sm" data-avatar="nj"></div><b>NJ</b><span>Head of House · Male</span></div>
+          <div class="fam-member" data-nav="tv"><div class="agent3d avatar-sm" data-avatar="telly"></div><b>Telly</b><span>TV Expert · Female</span></div>
+          <div class="fam-member" data-nav="movies"><div class="agent3d avatar-sm" data-avatar="filmy"></div><b>Filmy</b><span>Movie Buff · Male</span></div>
+          <div class="fam-member" data-nav="books"><div class="agent3d avatar-sm" data-avatar="kitabi"></div><b>Kitabi</b><span>Book Reader · Female</span></div>
+          <div class="fam-member" data-nav="tg"><div class="agent3d avatar-sm" data-avatar="sathi"></div><b>Sathi</b><span>Telegram Data · Male</span></div>
+          <div class="fam-member" data-nav="search"><div class="agent3d avatar-sm" data-avatar="khojo"></div><b>Khojo</b><span>Search Master · Male</span></div>
+        </div>
+      </div>
+
       <!-- AGENT ROOMS -->
       <div class="home-section">
         <div class="hs-head">
@@ -2671,6 +2731,10 @@ setTimeout(function(){ njHideLoader(true); }, 4000);
           <h3>📊 System Status</h3>
           <div id="njStatus" class="nj-status"><div class="loading">Load ho raha hai…</div></div>
         </div>
+        <div class="nj-card" style="grid-column:1/-1">
+          <h3>🧠 Neural Network — Agent Memories (growing neural network)</h3>
+          <div id="njMemory" class="nj-memory"><div class="loading">Loading memories…</div></div>
+        </div>
         <div class="nj-card">
           <h3>🛠️ Agent Skills (tools)</h3>
           <div id="njTools" class="nj-tools"></div>
@@ -2751,8 +2815,6 @@ setTimeout(function(){ njHideLoader(true); }, 4000);
 </div>
 
 <button class="mobile-toggle" id="mtoggle">☰</button>
-<!-- ROAMING 3D AGENTS -->
-<div class="roam-layer" id="roamLayer" aria-hidden="true"></div>
 <script src="/js/app.js?v=10"></script>
 </body>
 </html>
@@ -2841,17 +2903,16 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .main{margin-left:228px;flex:1;min-width:0;width:100%;max-width:100%;padding:26px 26px 40px;min-height:100vh}
 .page{display:none;animation:fadeUp .35s ease}
 .page.active{display:block}
-.page-head{margin-bottom:22px;position:relative}
+.page-head{margin-bottom:22px;position:relative;padding-right:120px}
 .page-head h1{font-size:26px;font-weight:800}
 .page-head p{color:var(--text2);font-size:13px;margin-top:4px}
-.agent3d{position:absolute;right:10px;top:-18px;width:110px;height:110px;z-index:3;pointer-events:none}
-.av-scene{width:100%;height:100%;perspective:560px;display:flex;align-items:center;justify-content:center}
-.av-char{position:relative;width:76px;height:104px;transform-style:preserve-3d;animation:avFloat 4.2s ease-in-out infinite alternate}
-@keyframes avFloat{0%{transform:translateY(2px) rotateY(-12deg) rotateZ(-1.2deg)}100%{transform:translateY(-8px) rotateY(12deg) rotateZ(1.2deg)}}
-.av-char.talking{animation:avTalkFloat .9s ease-in-out infinite alternate}
-@keyframes avTalkFloat{0%{transform:translateY(-2px) rotateY(-6deg) rotateZ(-.6deg)}100%{transform:translateY(-6px) rotateY(6deg) rotateZ(.6deg)}}
-.av-char .av-shadow{position:absolute;left:50%;bottom:-18px;width:56px;height:10px;margin-left:-28px;border-radius:50%;background:rgba(0,0,0,.30);filter:blur(3px);animation:avShadow 4.2s ease-in-out infinite alternate}
-@keyframes avShadow{0%{transform:scaleX(1);opacity:.65}100%{transform:scaleX(.74);opacity:.35}}
+.agent3d{position:absolute;right:8px;top:-14px;width:150px;height:150px;z-index:3;pointer-events:auto}
+.av-scene{width:100%;height:100%;perspective:560px;display:flex;align-items:flex-end;justify-content:center;transform:scale(1.18);transform-origin:bottom center}
+.av-char{position:relative;width:76px;height:104px;transform-style:preserve-3d;animation:avBreathe 4.6s ease-in-out infinite}
+@keyframes avBreathe{0%,100%{transform:scaleY(1) rotateY(-4deg)}50%{transform:scaleY(1.018) rotateY(4deg)}}
+.av-char.talking{animation:avTalkIn .5s ease-in-out infinite alternate}
+@keyframes avTalkIn{from{transform:scaleY(1) rotateY(-3deg)}to{transform:scaleY(1.03) rotateY(3deg)}}
+.av-char .av-shadow{position:absolute;left:50%;bottom:-18px;width:56px;height:10px;margin-left:-28px;border-radius:50%;background:rgba(0,0,0,.30);filter:blur(3px)}
 .av-body{position:absolute;left:50%;bottom:8px;width:46px;height:42px;margin-left:-23px;border-radius:46% 46% 40% 40%/58% 58% 36% 36%;background:linear-gradient(160deg,var(--avc3,#fff),var(--avc1,#555) 58%,var(--avc2,#333));box-shadow:inset -5px -7px 10px rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.10)}
 .av-body::after{content:"";position:absolute;left:50%;bottom:-3px;width:30px;height:8px;transform:translateX(-50%);border-radius:50%;background:rgba(0,0,0,.14)}
 .av-arms{position:absolute;left:50%;bottom:2px;transform:translateX(-50%)}
@@ -2876,8 +2937,49 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .av-mouth{position:absolute;left:50%;bottom:9px;width:12px;height:6px;margin-left:-6px;border-radius:0 0 10px 10px;background:#b4535a;border-bottom:2px solid #7f3b40;transform-origin:top center;z-index:5}
 .av-char.talking .av-mouth{animation:avTalk .42s ease-in-out infinite alternate}
 @keyframes avTalk{from{transform:scaleY(.35);border-radius:8px}to{transform:scaleY(1.7);border-radius:4px}}
-.av-acc{position:absolute;right:-8px;top:-8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:16px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);border-radius:10px;backdrop-filter:blur(4px);box-shadow:0 4px 12px rgba(0,0,0,.3);animation:avAcc 2.6s ease-in-out infinite alternate;z-index:6}
-@keyframes avAcc{from{transform:translateY(0) rotate(-6deg)}to{transform:translateY(-4px) rotate(6deg)}}
+.av-acc{position:absolute;right:-8px;top:-8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:16px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);border-radius:10px;backdrop-filter:blur(4px);box-shadow:0 4px 12px rgba(0,0,0,.3);animation:avAcc 3.2s ease-in-out infinite;z-index:6}
+@keyframes avAcc{0%,100%{transform:rotate(-5deg)}50%{transform:rotate(5deg)}}
+/* ---- FAMILY WALL + ROOM VISIT STRIP ---- */
+.fam-wall{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:14px}
+.fam-member{border:1px solid var(--border);border-radius:18px;background:var(--card);padding:14px 8px 14px;text-align:center;cursor:pointer;transition:.2s;position:relative;overflow:hidden}
+.fam-member::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 0%,rgba(34,211,238,.08),transparent 60%);pointer-events:none}
+.fam-member:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:var(--glow)}
+.fam-member .agent3d{position:relative;right:auto;top:auto;width:112px;height:112px;margin:0 auto 2px}
+.fam-member b{display:block;font-size:13.5px;margin-top:6px;color:var(--text)}
+.fam-member span{display:block;font-size:10.5px;color:var(--text2);margin-top:2px}
+.nj-memory{font-size:12px}
+.mem-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.mem-card{border:1px solid var(--border);border-radius:14px;background:var(--card2);padding:12px}
+.mem-head{font-weight:800;font-size:12.5px;margin-bottom:8px;color:var(--text)}
+.mem-facts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.mem-facts li{font-size:11.5px;color:var(--text2);line-height:1.45;padding-left:14px;position:relative}
+.mem-facts li::before{content:'';position:absolute;left:2px;top:6px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.mem-empty{font-size:11px;color:var(--text2);opacity:.75}
+.fam-strip{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}
+.fs-label{font-size:11px;color:var(--text2);font-weight:700;white-space:nowrap}
+.fs-btn{padding:6px 12px;border:1px solid var(--border);border-radius:12px;background:var(--card);color:var(--text);font-size:11.5px;font-weight:700;cursor:pointer;transition:.15s;white-space:nowrap}
+.fs-btn:hover{border-color:var(--accent);background:var(--grad);color:#fff}
+@media(max-width:820px){.fam-wall{grid-template-columns:repeat(3,1fr);gap:10px}.fam-member .agent3d{width:100px;height:100px}.fam-strip{gap:6px}}
+@media(max-width:520px){.fam-wall{grid-template-columns:repeat(2,1fr)}}
+/* ---- GENDER STYLES (Indian anime family) ---- */
+.av-bindi{position:absolute;left:50%;top:11px;width:6px;height:6px;margin-left:-3px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fb7185,#e11d48 70%);box-shadow:0 0 6px rgba(225,29,72,.75);z-index:8}
+.av-tik{position:absolute;left:50%;top:6px;width:9px;height:6px;margin-left:-4.5px;border-radius:50% 50% 4px 4px;background:linear-gradient(180deg,#f87171,#dc2626);box-shadow:0 0 5px rgba(220,38,38,.5);z-index:8;opacity:.9}
+/* Female body — dress + hips */
+.av-char.av-female{--avskin:#f5d6b8}
+.av-char.av-female .av-body{width:56px;height:50px;margin-left:-28px;border-radius:46% 46% 44% 56%/60% 60% 44% 66%;background:linear-gradient(165deg,var(--avc3,#fff),var(--avc1,#555) 52%,var(--avc2,#333))}
+.av-char.av-female .av-body::before{content:"";position:absolute;left:50%;bottom:-5px;width:48px;height:10px;transform:translateX(-50%);border-radius:50%;background:var(--avc1)}
+.av-char.av-female .av-body::after{content:"";position:absolute;left:50%;bottom:-11px;width:36px;height:16px;transform:translateX(-50%);border-radius:6px 6px 12px 12px;background:linear-gradient(180deg,var(--avc2,#333),#0f172a)}
+.av-char.av-female .av-leg{display:block} 
+.av-char.av-female .av-head{height:56px;border-radius:48% 48% 48% 48%/56% 56% 44% 44%}
+.av-char.av-female .av-hair{height:58px;border-radius:54% 54% 30% 30%/62% 62% 30% 30%}
+.av-char.av-female .av-hair::after{content:"";position:absolute;left:50%;top:44px;width:62px;height:34px;margin-left:-31px;border-radius:0 0 36% 36%;background:linear-gradient(180deg,var(--avhair1,#333),var(--avhair2,#222));z-index:0}
+.av-char.av-female .av-hair-back{height:48px;border-radius:50% 50% 42% 42%}
+.av-char.av-female .av-eye::before{content:"";position:absolute;left:-3px;top:-3px;width:18px;height:5px;border-radius:70% 70% 0 0;background:rgba(28,25,23,.9);z-index:7}
+.av-char.av-female .av-blush{width:10px;height:5px;background:rgba(244,114,182,.55)}
+/* Male body — broad shoulders + jacket */
+.av-char.av-male .av-body{width:52px;height:46px;margin-left:-26px;border-radius:44% 44% 38% 42%/58% 58% 38% 44%;background:linear-gradient(160deg,var(--avc3,#fff),var(--avc1,#555) 58%,var(--avc2,#333))}
+.av-char.av-male .av-body::after{content:"";position:absolute;left:50%;bottom:-4px;width:38px;height:10px;transform:translateX(-50%);border-radius:50%;background:linear-gradient(180deg,var(--avc1),#1e293b)}
+.av-char.av-male .av-arms i{width:11px;height:25px}
 .av-char[data-av="telly"]{--avc1:#22d3ee;--avc2:#0e7490;--avc3:#a5f3fc;--avskin:#ffe3c4;--avhair1:#0ea5b7;--avhair2:#134e4a;--aviris:#67e8f9;--aviris2:#0e7490}
 .av-char[data-av="sathi"]{--avc1:#34d399;--avc2:#047857;--avc3:#a7f3d0;--avskin:#ffd9b3;--avhair1:#10b981;--avhair2:#064e3b;--aviris:#6ee7b7;--aviris2:#047857}
 .av-char[data-av="filmy"]{--avc1:#f472b6;--avc2:#be185d;--avc3:#fbcfe8;--avskin:#ffe4cf;--avhair1:#f472b6;--avhair2:#be185d;--aviris:#f9a8d4;--aviris2:#be185d}
@@ -3052,49 +3154,7 @@ iframe[src*="t.me"]{width:100%!important;min-height:280px!important}
 .lib-actions button{flex:1;padding:9px 8px;border:none;border-radius:10px;font-size:12px;font-weight:800;cursor:pointer;transition:.15s;color:#fff;background:var(--grad)}
 .lib-actions button.alt{background:var(--card2);color:var(--accent);border:1px solid var(--border)}
 .lib-actions button:hover{filter:brightness(1.15)}
-/* Walking human-like agents overlay (bottom strip — logo/top kabhi cover nahi) */
-.roam-layer{position:fixed;inset:0;pointer-events:none;z-index:90;overflow:hidden}
-.walk-agent{position:fixed;bottom:6px;pointer-events:auto;cursor:pointer;transition:left 2.2s cubic-bezier(.33,.7,.2,1);z-index:92;filter:drop-shadow(0 12px 16px rgba(0,0,0,.38));user-select:none}
-.wa-char{width:56px;height:82px;position:relative;transform-origin:bottom center}
-.wa-shadow{position:absolute;bottom:-3px;left:50%;transform:translateX(-50%);width:44px;height:8px;border-radius:50%;background:rgba(0,0,0,.4);filter:blur(2px)}
-.wa-head{position:absolute;top:0;left:50%;transform:translateX(-50%);width:30px;height:28px;background:linear-gradient(135deg,#ffd9a8,#f7b97c);border-radius:46% 46% 42% 42%;z-index:3}
-.wa-hair{position:absolute;top:-3px;left:-2px;width:34px;height:13px;background:linear-gradient(135deg,#3b2f2f,#241d1d);border-radius:50% 50% 30% 30%/60% 60% 40% 40%;z-index:4}
-.wa-emoji{position:absolute;top:-9px;right:-7px;font-size:13px;z-index:5;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))}
-.wa-eye{position:absolute;top:12px;width:4px;height:5px;background:#1c1917;border-radius:50%}
-.wa-eye.l{left:7px}.wa-eye.r{right:7px}
-.wa-mouth{position:absolute;top:19px;left:50%;transform:translateX(-50%);width:7px;height:4px;background:#a05c3c;border-radius:0 0 6px 6px}
-.wa-body{position:absolute;top:26px;left:50%;transform:translateX(-50%);width:38px;height:34px;background:linear-gradient(135deg,rgba(99,102,241,.95),rgba(56,189,248,.95));border-radius:12px 12px 8px 8px;z-index:2}
-.wa-torso{width:100%;height:100%;position:relative}
-.wa-arm{position:absolute;top:8px;width:8px;height:22px;background:#2c3e50;border-radius:6px;transform-origin:top center}
-.wa-arm.l{left:-4px}.wa-arm.r{right:-4px}
-.walk-agent.walking .wa-arm.l{animation:waArmL .5s ease-in-out infinite}
-.walk-agent.walking .wa-arm.r{animation:waArmR .5s ease-in-out infinite}
-@keyframes waArmL{0%,100%{transform:rotate(18deg)}50%{transform:rotate(-18deg)}}
-@keyframes waArmR{0%,100%{transform:rotate(-18deg)}50%{transform:rotate(18deg)}}
-.wa-legs{position:absolute;top:56px;left:50%;transform:translateX(-50%);width:38px;height:20px;z-index:1}
-.wa-leg{position:absolute;top:0;width:9px;height:22px;background:#1e293b;border-radius:5px;transform-origin:top center}
-.wa-leg.l{left:2px}.wa-leg.r{right:2px}
-.walk-agent.walking .wa-leg.l{animation:waLegL .5s ease-in-out infinite}
-.walk-agent.walking .wa-leg.r{animation:waLegR .5s ease-in-out infinite}
-@keyframes waLegL{0%,100%{transform:rotate(20deg) translateY(0)}50%{transform:rotate(-20deg) translateY(-1px)}}
-@keyframes waLegR{0%,100%{transform:rotate(-20deg) translateY(0)}50%{transform:rotate(20deg) translateY(-1px)}}
-.wa-body{animation:none}
-.walk-agent.idle .wa-char{animation:waLook 2.4s ease-in-out infinite}
-@keyframes waLook{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
-.walk-agent.wave .wa-arm.r{animation:waWave .9s ease-in-out 3}
-@keyframes waWave{0%,100%{transform:rotate(0deg)}50%{transform:rotate(120deg)}}
-.walk-agent.look .wa-head{animation:waTilt .8s ease-in-out infinite}
-@keyframes waTilt{0%,100%{transform:translateX(-50%) rotate(0deg)}50%{transform:translateX(-50%) rotate(8deg)}}
-.walk-agent.think .wa-head::after{content:'';position:absolute;top:-12px;right:2px;width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.85)}
-.walk-agent.listen .wa-head{animation:waListenBounce .6s ease-in-out infinite}
-@keyframes waListenBounce{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-3px)}}
-.wa-bubble{position:absolute;left:50%;bottom:104%;transform:translateX(-50%);background:rgba(20,26,40,.96);color:#e2e8f0;border:1px solid rgba(148,163,184,.3);padding:6px 11px;border-radius:12px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.45);pointer-events:none;max-width:220px;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
-.wa-dots{display:none;gap:3px}
-.wa-dots i{width:5px;height:5px;border-radius:50%;background:#22d3ee;animation:blink 1s infinite}
-.wa-dots i:nth-child(2){animation-delay:.2s}.wa-dots i:nth-child(3){animation-delay:.4s}
-.wa-mic{position:absolute;top:-12px;left:50%;transform:translateX(-50%);width:22px;height:22px;border-radius:50%;border:1px solid rgba(148,163,184,.4);background:rgba(30,41,59,.95);color:#22d3ee;font-size:11px;cursor:pointer;display:none;align-items:center;justify-content:center;z-index:6;padding:0}
-.walk-agent:hover .wa-mic{display:flex}
-@media(max-width:600px){.wa-char{width:44px;height:66px}.wa-head{width:26px;height:24px}.wa-body{width:32px;height:28px}.wa-leg{width:8px;height:18px}.wa-bubble{font-size:10px;max-width:150px}}
+
 @media(max-width:820px){.lib-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
 .media-card .info{padding:10px 12px}
 .media-card h4{font-size:12px;font-weight:700;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -3623,7 +3683,6 @@ function go(page){
   if (page==='apk')     loadTgLibrary('apk');
   if (page==='family')  { loadFamilyChat(false); setTimeout(function(){ var fi=$('famIn'); if(fi) fi.focus({preventScroll:true}); }, 160); }
   initRoomUI(page);
-  roamRefresh(page);
   if (page==='login')   switchAuthTab('login');
 }
 
@@ -3699,9 +3758,26 @@ document.addEventListener('keydown', function(e){
 var roomMap = { tv:'telly', tg:'sathi', movies:'filmy', books:'kitabi', search:'khojo', ai:'main', nj:'main' };
 var readerState = { key:'', title:'', text:'', paras:[] };
 
+function buildFamilyStrip(page){
+  if (!page) return;
+  var head = document.querySelector('#pg-' + page + ' .page-head');
+  if (!head || head.querySelector('.fam-strip') || typeof NJAV === 'undefined') return;
+  if (page === 'home' || page === 'login') return;
+  var strip = document.createElement('div');
+  strip.className = 'fam-strip';
+  strip.innerHTML = '<span class="fs-label">👨‍👩‍👧‍👦 Family:</span>';
+  Object.keys(NJAV.agents || {}).forEach(function(id){
+    var c = NJAV.agents[id];
+    if (!c) return;
+    strip.innerHTML += '<button class="fs-btn" data-nav="' + esc(c.room) + '" title="' + esc(c.name) + ' room">' + c.em + ' ' + esc(c.name) + '</button>';
+  });
+  head.appendChild(strip);
+}
+
 function initRoomUI(page){
   var agent = roomMap[page];
   if (!agent) return;
+  buildFamilyStrip(page);
   var box = document.querySelector('.room-notes[data-room="'+agent+'"]');
   var inp = box ? box.querySelector('[data-note-in]') : null;
   if (inp && !inp.dataset.loaded){
@@ -3759,6 +3835,29 @@ async function loadNJRoom(){
         '📺 IPTV: <b>'+esc(s.iptv)+'</b>';
     }
   }catch(e){}
+  // Neural Network — agent memories
+  try{
+    var ids = ['nj','telly','filmy','kitabi','sathi','khojo'];
+    var mEl = $('njMemory');
+    var mHtml = '<div class="mem-grid">';
+    for (var mi = 0; mi < ids.length; mi++){
+      var mid = ids[mi];
+      var mr = await fetch(API+'/api/agents/memory?agent='+mid);
+      var md = await mr.json();
+      var facts = (md && md.facts) || [];
+      var cfg = (NJAV.agents && NJAV.agents[mid]) || {};
+      mHtml += '<div class="mem-card"><div class="mem-head">'+ (cfg.em||'🤖') +' '+ (cfg.name||mid) +' ('+facts.length+')</div>';
+      if (facts.length){
+        mHtml += '<ul class="mem-facts">';
+        facts.slice(0,5).forEach(function(f){ mHtml += '<li>'+esc(f.fact)+'</li>'; });
+        mHtml += '</ul>';
+      } else { mHtml += '<p class="mem-empty">Abhi memory khali hai — family baat karegi toh padh jayega.</p>'; }
+      mHtml += '</div>';
+    }
+    mHtml += '</div>';
+    if (mEl) mEl.innerHTML = mHtml;
+  }catch(e){ var mEl2=$('njMemory'); if(mEl2) mEl2.innerHTML='<p>Error loading memories</p>'; }
+
   // Skills tools
   try{
     var sr = await fetch(API+'/api/agents/skills');
@@ -4863,194 +4962,6 @@ document.addEventListener('change', function(e){
   if (e.target && e.target.id === 'apkSort'){ libState.apk.sort = e.target.value; loadTgLibrary('apk'); }
 });
 
-/* ---------- WALKING 3D AGENTS (human-like walk + gesture + voice) ---------- */
-var ROAM_DEFS = [
-  { id:'nj', em:'🧠', label:'NJ', page:'nj', title:'NJ — Head of House', tips:['Main poore ghar ka dhyan rakhta hoon! 🏠','Koi kaam ho toh batao bhai!','Family sabse pehle! 💞'], chat:'Kuchh bhi poocho!' },
-  { id:'telly', em:'📺', label:'Telly', page:'tv', title:'Telly — TV Expert', tips:['Sirf LIVE channels dikhata hoon! 📡','162 verified channels ready hain!','Hindi news + movies sab live!'],
-    chat:'Channel list dikhao' },
-  { id:'sathi', em:'📱', label:'Sathi', page:'tg', title:'Sathi — Telegram Data', tips:['Telegram data sab accessible hai! 📱','Videos, books, files sab ready!','186 videos index ho gayi hain! 🎞️'], chat:'Telegram data dikhao' },
-  { id:'filmy', em:'🎬', label:'Filmy', page:'movies', title:'Filmy — Movie Buff', tips:['Aaj ki movie pakki hai! 🍿','Telegram Movies tab bhi yahin hai!','TMDB se fresh picks! ⭐'], chat:'Movie suggest karo' },
-  { id:'kitabi', em:'📚', label:'Kitabi', page:'books', title:'Kitabi — Book Reader', tips:['Kitabein yahan padho — free! 📖','PDF + EPUB + in-site reader!','Bookmark aur notes bhi! ✍️'], chat:'Kitab suggest karo' },
-  { id:'khojo', em:'🔍', label:'Khojo', page:'search', title:'Khojo — Search Master', tips:['Kuchh bhi dhundho — sab milega! 🔍','Movies + books + Telegram ek saath!','Khojo, toh pao! ✨'], chat:'Kuchh dhundho' },
-];
-var roamMapByPage = { home:['nj','telly','filmy','kitabi','sathi','khojo'], tv:['telly'], tg:['sathi'], tgv:['sathi'], apk:['sathi','telly'], movies:['filmy'], books:['kitabi'], search:['khojo'], nj:['nj'], ai:['nj'], family:['nj'], catalog:['nj'], login:['nj'] };
-var roamEls = {};
-var _roamInit = false;
-
-function waCharMarkup(em){
-  return '<div class="wa-shadow"></div>' +
-    '<div class="wa-head">' +
-      '<div class="wa-hair"></div>' +
-      '<div class="wa-emoji">' + em + '</div>' +
-      '<div class="wa-eye l"></div><div class="wa-eye r"></div>' +
-      '<div class="wa-mouth"></div>' +
-    '</div>' +
-    '<div class="wa-body">' +
-      '<div class="wa-torso"><div class="wa-arm l"></div><div class="wa-arm r"></div></div>' +
-    '</div>' +
-    '<div class="wa-legs"><div class="wa-leg l"></div><div class="wa-leg r"></div></div>';
-}
-function initRoamAgents(){
-  if (_roamInit) return;
-  _roamInit = true;
-  var layer = $('roamLayer');
-  if (!layer) return;
-  ROAM_DEFS.forEach(function(def){
-    var el = document.createElement('div');
-    el.className = 'walk-agent';
-    el.id = 'walk-' + def.id;
-    el.setAttribute('data-walk', def.id);
-    el.innerHTML = '<div class="wa-bubble"><span class="wa-bubble-txt">' + def.label + '</span><span class="wa-dots"><i></i><i></i><i></i></span></div>' + waCharMarkup(def.em) + '<button class="wa-mic" title="Voice se baat karo">🎙️</button>';
-    el.addEventListener('click', function(ev){
-      if (ev.target && ev.target.closest && ev.target.closest('.wa-mic')){ waListen(def); return; }
-      waInteract(def, el);
-    });
-    el.addEventListener('mouseenter', function(){ el.classList.add('look'); });
-    el.addEventListener('mouseleave', function(){ el.classList.remove('look'); });
-    layer.appendChild(el);
-    roamEls[def.id] = el;
-  });
-  roamRefresh(typeof state !== 'undefined' ? state.page : 'home');
-  // Continuous human-like walking
-  setInterval(function(){ walkStep(); }, 2600);
-  setInterval(function(){ waRandomTalk(); }, 14000);
-}
-function waBounds(){
-  var w = window.innerWidth;
-  var main = document.querySelector('.main');
-  if (main){ var r = main.getBoundingClientRect(); if (r && r.width > 200) w = r.width; }
-  return { min: 16, max: Math.max(80, w - 110) };
-}
-function roamRefresh(page){
-  if (!roamEls.nj) return;
-  var ids = roamMapByPage[page] || ['nj'];
-  var active = {};
-  ids.forEach(function(id){ active[id] = 1; });
-  var laneMap = {};
-  ROAM_DEFS.forEach(function(def){
-    var el = roamEls[def.id];
-    if (!el) return;
-    if (active[def.id]){
-      el.style.display = 'block';
-      laneMap[def.id] = Object.keys(laneMap).length;
-      if (!el.dataset.x){ el.dataset.x = String(20 + Math.floor(Math.random() * 60)); el.style.left = el.dataset.x + 'px'; }
-      el.dataset.dir = el.dataset.dir || '1';
-    } else { el.style.display = 'none'; }
-  });
-  ROAM_DEFS.forEach(function(def){
-    var el = roamEls[def.id];
-    if (!el || el.style.display === 'none') return;
-    // Lanes: bottom strip — kabhi logo/top par nahi
-    var lane = laneMap[def.id] || 0;
-    el.style.bottom = (6 + lane * 16) + 'px';
-  });
-  walkStep();
-}
-function walkStep(){
-  var page = (typeof state !== 'undefined' && state.page) || 'home';
-  var ids = roamMapByPage[page] || ['nj'];
-  ROAM_DEFS.forEach(function(def){
-    var el = roamEls[def.id];
-    if (!el || el.style.display === 'none') return;
-    // Kabhi-kabhi ruk kar sochta hai / idhar-udhar dekhta hai
-    if (Math.random() < 0.22){
-      el.classList.add('idle');
-      setTimeout(function(){ el.classList.remove('idle'); }, 1400);
-      return;
-    }
-    var b = waBounds();
-    var x = parseInt(el.dataset.x || '20', 10);
-    var dir = parseInt(el.dataset.dir || '1', 10);
-    var step = 70 + Math.floor(Math.random() * 130);
-    x += dir * step;
-    if (x >= b.max){ x = b.max; dir = -1; }
-    if (x <= b.min){ x = b.min; dir = 1; }
-    el.dataset.x = String(x);
-    el.dataset.dir = String(dir);
-    el.style.left = x + 'px';
-    el.style.transform = 'scaleX(' + dir + ')';
-    el.classList.add('walking');
-    setTimeout(function(){ if (el) el.classList.remove('walking'); }, 1300);
-  });
-}
-function waBubble(el, txt, thinking){
-  var b = el.querySelector('.wa-bubble-txt');
-  var d = el.querySelector('.wa-dots');
-  if (b) b.textContent = txt;
-  if (d) d.style.display = thinking ? 'inline-flex' : 'none';
-}
-function waSpeak(text){
-  try {
-    if (window.speechSynthesis){
-      speechSynthesis.cancel();
-      var u = new SpeechSynthesisUtterance(text || '');
-      u.lang = 'hi-IN';
-      u.rate = 1.02;
-      var voices = speechSynthesis.getVoices();
-      var hv = voices.filter(function(v){ return /hi|hin/i.test(v.lang); });
-      if (hv && hv.length) u.voice = hv[Math.floor(Math.random() * hv.length)];
-      speechSynthesis.speak(u);
-    }
-  } catch(e){}
-}
-function waInteract(def, el){
-  el.classList.add('wave');
-  el.classList.add('think');
-  waBubble(el, 'Soch raha hoon…', true);
-  setTimeout(function(){
-    el.classList.remove('think');
-    var tip = def.tips[Math.floor(Math.random() * def.tips.length)];
-    waBubble(el, tip, false);
-    waSpeak(def.title + '. ' + tip);
-  }, 1500);
-  setTimeout(function(){ el.classList.remove('wave'); }, 4500);
-  setTimeout(function(){
-    try { if (def.page && typeof go === 'function') go(def.page); } catch(e){}
-  }, 3600);
-}
-function waRandomTalk(){
-  var page = (typeof state !== 'undefined' && state.page) || 'home';
-  var ids = roamMapByPage[page] || [];
-  if (!ids.length) return;
-  var def = ROAM_DEFS[Math.floor(Math.random() * ids.length)];
-  var el = roamEls[def.id];
-  if (!el || el.style.display === 'none') return;
-  var tip = def.tips[Math.floor(Math.random() * def.tips.length)];
-  waBubble(el, tip, false);
-  setTimeout(function(){ if (el) waBubble(el, def.label, false); }, 6000);
-}
-function waListen(def){
-  var el = roamEls[def.id];
-  if (!el) return;
-  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR){ waBubble(el, 'Voice browser mein support nahi — Chrome use karo', false); return; }
-  var rec = new SR();
-  rec.lang = 'hi-IN';
-  rec.interimResults = false;
-  el.classList.add('listen');
-  waBubble(el, '🎙️ Sun raha hoon… bolo!', false);
-  rec.onresult = function(ev){
-    var txt = '';
-    for (var i = 0; i < ev.results.length; i++) txt += ev.results[i][0].transcript;
-    el.classList.remove('listen');
-    waBubble(el, '🗣️ "' + String(txt).slice(0, 70) + '"', false);
-    waSpeak('Achha, main samajh gaya bhai.');
-    try {
-      if (typeof go === 'function') go('ai');
-      setTimeout(function(){
-        var inp = $('chatIn');
-        if (inp){ inp.value = txt; if (typeof sendChat === 'function') sendChat(); }
-      }, 900);
-    } catch(e){}
-  };
-  rec.onerror = function(){ el.classList.remove('listen'); waBubble(el, '❌ Sun nahi paya — dobara kaho', false); };
-  rec.onend = function(){ el.classList.remove('listen'); };
-  try { rec.start(); } catch(e){ el.classList.remove('listen'); waBubble(el, '❌ Mic allow karo', false); }
-}
-// Walking agents start after app init
-setTimeout(function(){ try { initRoamAgents(); } catch(e){} }, 800);
-setTimeout(function(){ try { initRoamAgents(); } catch(e){} }, 2500);
-
 
 /* ---------- CATALOG ---------- */
 async function loadCatalog(){
@@ -5082,7 +4993,14 @@ async function addToCatalog(){
 }
 
 /* ---------- 3D AGENT AVATARS (CSS3D, zero-dependency, universal) ---------- */
-var NJAV = { agents: { telly: { em: '📺', name: 'Telly' }, sathi: { em: '📱', name: 'Sathi' }, filmy: { em: '🎬', name: 'Filmy' }, kitabi: { em: '📚', name: 'Kitabi' }, khojo: { em: '🔍', name: 'Khojo' }, nj: { em: '🧠', name: 'NJ' } } };
+var NJAV = { agents: {
+  nj:    { em: '🧠', name: 'NJ',    gender: 'male',   room: 'nj',     tip: 'Main poore ghar ka dhyan rakhta hoon! 🏠' },
+  telly: { em: '📺', name: 'Telly', gender: 'female', room: 'tv',     tip: 'Sirf LIVE channels dikhati hoon! 📡' },
+  filmy: { em: '🎬', name: 'Filmy', gender: 'male',   room: 'movies', tip: 'Aaj ki movie pakki hai! 🍿' },
+  kitabi:{ em: '📚', name: 'Kitabi',gender: 'female', room: 'books',  tip: 'Kitabein yahan padho — free! 📖' },
+  sathi: { em: '📱', name: 'Sathi', gender: 'male',   room: 'tg',     tip: 'Telegram data sab ready! 📱' },
+  khojo: { em: '🔍', name: 'Khojo', gender: 'male',   room: 'search', tip: 'Kuchh bhi dhundho — milega! 🔍' },
+} };
 
 function njAvatarSpeakAll(on){
   var chars = document.querySelectorAll('.av-char');
@@ -5092,16 +5010,28 @@ function njAvatarSpeakAll(on){
 }
 window.njAvatarSpeakAll = njAvatarSpeakAll;
 window.njAvatars = NJAV;
+window.speakAgent = njSpeakAgent;
+function njAvatarSpeak(on, el){
+  try { if (el) el.classList.toggle('talking', !!on); if (on) setTimeout(function(){ if (el) el.classList.remove('talking'); }, 2600); } catch(e){}
+}
+function njSpeakAgent(id){
+  var c = NJAV.agents[id];
+  if (!c) return;
+  var text = c.name + '. ' + (c.tip || '');
+  try { if (window.speechSynthesis){ speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance(text); u.lang = 'hi-IN'; u.rate = 1.05; var vs = speechSynthesis.getVoices(); var hv = vs.filter(function(v){ return /hi|hin/i.test(v.lang); }); if (hv.length) u.voice = hv[Math.floor(Math.random()*hv.length)]; speechSynthesis.speak(u); } } catch(e){}
+}
 
 function njAvatarBuild(slot, id){
   var cfg = NJAV.agents[id] || NJAV.agents.nj;
+  var fem = cfg.gender === 'female';
   slot.innerHTML =
-    '<div class="av-scene"><div class="av-char" data-av="' + esc(id) + '">' +
+    '<div class="av-scene"><div class="av-char' + (fem ? ' av-female' : ' av-male') + '" data-av="' + esc(id) + '" data-room="' + esc(cfg.room || '') + '" title="' + esc(cfg.name) + ' room">' +
     '<div class="av-shadow"></div>' +
     '<div class="av-hair-back"></div>' +
     '<div class="av-body"><div class="av-body-mark"></div><div class="av-arms"><i class="al"></i><i class="ar"></i></div></div>' +
     '<div class="av-head">' +
       '<div class="av-hair"></div><div class="av-bangs"></div>' +
+      (fem ? '<i class="av-bindi"></i>' : '<i class="av-tik"></i>') +
       '<div class="av-brow l"></div><div class="av-brow r"></div>' +
       '<div class="av-eye l"><i class="av-iris"></i><i class="av-hl"></i></div>' +
       '<div class="av-eye r"><i class="av-iris"></i><i class="av-hl"></i></div>' +
@@ -5111,6 +5041,17 @@ function njAvatarBuild(slot, id){
     '<div class="av-acc">' + cfg.em + '</div>' +
     '</div></div>';
   slot._njsc = { ready: true, id: id };
+  // Click char → speak + room open
+  var ch = slot.querySelector('.av-char');
+  if (ch){
+    ch.style.cursor = 'pointer';
+    ch.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      njSpeakAgent(id);
+      njAvatarSpeak(true, ch);
+      if (cfg.room && typeof go === 'function') go(cfg.room);
+    });
+  }
 }
 
 function initAgent3D(){

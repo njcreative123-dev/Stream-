@@ -1,0 +1,16 @@
+import { chromium } from 'playwright';
+const base = 'https://njsoft-stream.njcreative123.workers.dev';
+const browser = await chromium.launch({ headless: true });
+const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+const page = await ctx.newPage();
+const errors = [];
+page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+page.on('pageerror', e => errors.push('PAGE_ERR: ' + e.message));
+await page.goto(base + '/#tg', { waitUntil: 'networkidle', timeout: 25000 });
+await page.waitForTimeout(3000);
+console.log('state before:', await page.evaluate(() => ({ offset: tgState.offset, hasMore: tgState.hasMore, loading: tgState.loading, total: tgState.total, arrLen: tgMessages.length })));
+await page.locator('button:has-text("Load More")').first().click();
+await page.waitForTimeout(5000);
+console.log('state after:', await page.evaluate(() => ({ offset: tgState.offset, hasMore: tgState.hasMore, loading: tgState.loading, arrLen: tgMessages.length })));
+console.log('errors:', JSON.stringify(errors.filter(e => !/favicon|401|403/i.test(e))));
+await browser.close();

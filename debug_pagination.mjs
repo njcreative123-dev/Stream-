@@ -1,0 +1,16 @@
+import { chromium } from 'playwright';
+const base = 'https://njsoft-stream.njcreative123.workers.dev';
+const browser = await chromium.launch({ headless: true });
+const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+const page = await ctx.newPage();
+const errors = [];
+page.on('pageerror', e => errors.push('PAGE_ERR: ' + e.message));
+page.on('unhandledrejection', e => errors.push('REJECT: ' + e.reason));
+await page.goto(base + '/#tg', { waitUntil: 'networkidle', timeout: 25000 });
+await page.waitForTimeout(3000);
+console.log('before click:', await page.evaluate(() => window.__tgDebug()));
+await page.locator('button:has-text("Load More")').first().click();
+await page.waitForTimeout(5000);
+console.log('after click:', await page.evaluate(() => window.__tgDebug()));
+console.log('errors:', JSON.stringify(errors));
+await browser.close();

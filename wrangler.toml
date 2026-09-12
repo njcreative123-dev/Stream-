@@ -4,7 +4,7 @@ compatibility_date = "2024-09-01"
 
 [vars]
 ENVIRONMENT = "production"
-WELCOME_MESSAGE = "NJStream v6.0 — Live TV + Categories, Long Videos, OpenRouter AI"
+WELCOME_MESSAGE = "NJStream v8.0 — Agent Rooms + Skills, Long Videos"
 TG_CHAT_ID = "-1002514429549"
 
 WORKER_URL = "https://njsoft-stream.njcreative123.workers.dev"
@@ -16,6 +16,14 @@ database_id = "a8cf8fd3-fa70-42ed-b83c-83dc326909a9"
 [[kv_namespaces]]
 binding = "KV_STORE"
 id = "e1889fcdeca94f2abe934162ade34db8"
+
+# R2 LONG-VIDEO BINDING (10GB free)
+# Dashboard se R2 enable + bucket "njsoft-media" banao (R2 → Create bucket → njsoft-media → Create),
+# phir neeche ke 3 lines ka "# " hatakar "wrangler deploy" chalao. Worker par turant:
+#   /api/r2/import  → upload karo,  /api/media/{id}  → play/download (Range 206)
+# [[r2_buckets]]
+# binding = "MEDIA_BUCKET"
+# bucket_name = "njsoft-media"
 
 [triggers]
 crons = ["0 */6 * * *"]

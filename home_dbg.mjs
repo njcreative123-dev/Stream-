@@ -1,0 +1,16 @@
+import { chromium } from 'playwright';
+const CHROME='/data/user/0/gptos.intelligence.assistant/files/rootfs/root/.cache/ms-playwright/chromium-1243/chrome-linux-arm64/chrome';
+const b=await chromium.launch({executablePath:CHROME,args:['--no-sandbox']});
+const p=await b.newPage({viewport:{width:1366,height:850}});
+p.on('response',async r=>{ if(r.status()>=400){ console.log('HTTP',r.status(),r.url().slice(0,110)); } });
+p.on('pageerror',e=>console.log('PE',e.message.slice(0,120)));
+await p.goto('https://njsoft-stream.njcreative123.workers.dev/',{waitUntil:'domcontentloaded',timeout:40000});
+await p.waitForTimeout(16000);
+console.log('stTV=',await p.evaluate(()=>document.getElementById('stTV')?.textContent));
+console.log('stTG=',await p.evaluate(()=>document.getElementById('stTG')?.textContent));
+console.log('svcTG=',await p.evaluate(()=>document.getElementById('svcTG')?.textContent));
+console.log('homeTG=',await p.evaluate(()=>document.getElementById('homeTG')?.innerText.slice(0,150)));
+console.log('homeTG html len=',await p.evaluate(()=>document.getElementById('homeTG')?.innerHTML.length));
+console.log('loader=',await p.evaluate(()=>document.getElementById('loader')?.getAttribute('style')));
+await p.screenshot({path:'/root/johnny.heliohost./proof_r_home2.png'});
+await b.close();

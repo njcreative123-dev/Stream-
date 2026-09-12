@@ -9,5 +9,8 @@
     "status": "curl -s https://njsoft-stream.njcreative123.workers.dev/api/status"
   },
   "author": "njcreative123",
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.63.0"
+  }
 }

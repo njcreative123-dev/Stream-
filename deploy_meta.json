@@ -1,0 +1,12 @@
+{
+  "main_module": "index.js",
+  "compatibility_date": "2025-04-01",
+  "bindings": [
+    {"type":"kv_namespace","name":"KV_STORE","namespace_id":"e1889fcdeca94f2abe934162ade34db8"},
+    {"type":"d1","name":"CATALOG_DB","id":"a8cf8fd3-fa70-42ed-b83c-83dc326909a9","database_name":"njsoft-catalog","database_id":"a8cf8fd3-fa70-42ed-b83c-83dc326909a9"},
+    {"type":"plain_text","name":"ENVIRONMENT","text":"production"},
+    {"type":"plain_text","name":"WELCOME_MESSAGE","text":"NJStream v8.5 — 3D Family Characters"},
+    {"type":"plain_text","name":"TG_CHAT_ID","text":"-1002514429549"},
+    {"type":"plain_text","name":"WORKER_URL","text":"https://njsoft-stream.njcreative123.workers.dev"}
+  ]
+}
