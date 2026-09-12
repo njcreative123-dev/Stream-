@@ -1,96 +1,94 @@
-# NJStream — All-in-One Streaming Platform
+# NJStream v8.3 — AI-Powered Streaming + Telegram Library
 
-🎬 **Live TV** • **Movies** • **Books** • **Telegram Data** • **AI Chat** — Sab Free!
+**Live:** https://njsoft-stream.njcreative123.workers.dev
 
-**Live Site:** https://njsoft-stream.njcreative123.workers.dev
+## What's New
 
----
+### 🎞️ Telegram Library (Categorized)
+- **186 videos**, **2 APK/software** items automatically indexed
+- SVG thumbnails auto-generated — no external image dependencies
+- Search + filter + sort (date, size, A-Z) on every page
+- Videos page (`/videos`) — grid view with play + download + mirror status
+- Software page (`/apk`) — APK files + documents grid
+- Smart categorization: videos, books, APK, photos, audio, text, docs, archives
 
-## Features
+### 👨‍👩‍👧‍👦 Family Room (`/family`)
+- All 6 AI agents (NJ, Telly, Filmy, Kitabi, Sathi, Khojo) talk in one room
+- Humans can join and chat with agents directly
+- Backed by OpenRouter AI with fallback providers
 
-| Feature | Status | Details |
-|---------|--------|---------|
-| 📺 Live TV | ✅ 910 channels | Hindi priority (188), HLS.js player |
-| 📱 Telegram Data | ✅ Readable + Downloadable | Photos, videos, documents — inline playback |
-| 🎬 Movies | ✅ TMDB Hindi + English | Popular, Top Rated, Now Playing, Upcoming |
-| 📚 Books | ✅ Open Library | 20+ Hindi books, read links |
-| 🤖 AI Chat | ✅ Smart routing | Cloudflare AI LLM powered |
-| 🔍 Search | ✅ Multi-source | Movies + Books + Telegram |
-| 📁 Catalog | ✅ D1 SQLite | Add/edit content |
-| 🔄 Sync | ✅ Cron + Manual | 6-hour auto-sync + UI button |
+### 🎭 Roaming 3D Agents
+- CSS3D floating agent orbs move freely across every page
+- Click any agent orb to navigate to their room
+- Movement animation — agents drift to new positions every 4.2s
+- Per-page agent assignment (TV → Telly, TG → Sathi, etc.)
+
+### 🔗 Deep Link Routing
+- Human-friendly URLs: `/tv`, `/telegram`, `/videos`, `/apk`, `/family`
+- SPA fallback — no more 404s for direct links
 
 ## Architecture
 
+| Component | Tech |
+|-----------|------|
+| Worker | Cloudflare Workers (single-file, 287KB) |
+| KV Store | Messages + media mirrors + library cache + family chat |
+| D1 | Users + catalog |
+| TV Sources | IPTV-org (2200+ channels, auto-category) |
+| AI | OpenRouter → Groq → Cerberus → Polination (5 providers) |
+| Videos | GitHub Releases (mirrors) + Telegram bot proxy (≤20MB) |
+| Books | Open Library API (Hindi + English) |
+| Movies | TMDB (Hindi/English) |
+
+## Endpoints
+
 ```
-Cloudflare Worker (edge)
-├── /css/style.css — Dark glassmorphism theme
-├── /js/app.js — Single-page app (HLS.js TV player)
-├── /api/live-tv — IPTV parser (iptv-org sources)
-├── /api/telegram/* — Webhook + KV storage + ingest
-├── /api/movies — TMDB fallback → D1 cache
-├── /api/books — Open Library
-├── /api/chat — Cloudflare AI / smart fallback
-├── /api/search — Multi-source
-└── /api/catalog — D1 SQLite CRUD
+/                           Home (SPA)
+/tv                         Live TV (2200+ channels, Hindi first)
+/tg                         Telegram data
+/videos                     Telegram videos library
+/apk                        Software / APK library
+/books                      Open Library books
+/movies                     TMDB movies
+/search                     Universal search
+/ai                         AI Chat (Agent NJ)
+/family                     Family Room (agents + humans)
+/nj                         NJ Room (admin)
+/catalog                    My Catalog (D1)
+/login                      Login / Register
+/api/telegram/library       Categorized library API
+/api/telegram/messages      Telegram messages
+/api/telegram/stream        Stream video
+/api/telegram/proxy         Proxy stream
+/api/media/{id}             Media mirror stream
+/api/media/{id}?download=1  Media download
+/api/live-tv                Live TV channels
+/api/chat                   AI chat
+/api/family-chat/start      Start family session
 ```
 
-## Services
+## Credentials (in Cloudflare Workers secrets)
 
-- **Cloudflare Worker** — v5.0.0 (200+ edge locations)
-- **KV Storage** — Telegram data cache (30-day TTL)
-- **D1 Database** — `njsoft-catalog` (SQLite at edge)
-- **Cron Trigger** — `0 */6 * * *` (every 6 hours)
-
-## Telegram Setup
-
-### Automatic (webhook)
-Bot `@no1currentbot` webhook is active — all new messages in group `-1002514429549` are stored automatically.
-
-### Full History Backfill (Telethon)
-To import old group history:
-
-1. Get `API_ID`/`API_HASH` from https://my.telegram.org
-2. Install: `pip install telethon`
-3. Run:
-```bash
-API_ID=xxxxx API_HASH=xxxxx PHONE=+91xxxx GROUP=hindidubbedfilmmovie \
-  INGEST_KEY=$(cat .env | grep INGEST_KEY | cut -d= -f2) \
-  python scripts/telegram_backfill.py
-```
-
-### Webhook Status
-Check: https://njsoft-stream.njcreative123.workers.dev/api/status
+- Telegram Bot Token (set via `wrangler secret put`)
+- OpenRouter API Key
+- Groq API Key  
+- Cerberus API Key
+- Polination API Key
+- Ingest Key
 
 ## Deploy
 
 ```bash
-export CLOUDFLARE_API_TOKEN=...
-export CLOUDFLARE_ACCOUNT_ID=18998bfa1e33fe431b59dd938db7907c
-npx wrangler deploy
+npx esbuild src/workers/index.js --bundle --format=esm --outfile=/tmp/wb.js
+# Upload to CF Workers REST API
 ```
 
-## API Endpoints
+## Telegram Backfill
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/status` | GET | Service health |
-| `/api/live-tv` | GET | All channels (filterable) |
-| `/api/live-tv/stream` | GET | Proxy (302 redirect) |
-| `/api/telegram/messages` | GET | Messages (paginated) |
-| `/api/telegram/sync` | POST | Sync from webhook |
-| `/api/telegram/ingest` | POST | Bulk import (x-ingest-key) |
-| `/api/movies` | GET | TMDB movies by category |
-| `/api/books` | GET | Open Library search |
-| `/api/search` | GET | Multi-source search |
-| `/api/chat` | POST | AI chat |
-| `/api/catalog` | GET/POST/DELETE | D1 catalog CRUD |
-
-## Credentials (Cloudflare)
-
-- Account: `18998bfa1e33fe431b59dd938db7907c`
-- Worker: `njsoft-stream`
-- KV: `e1889fcdeca94f2abe934162ade34db8`
-- D1: `njsoft-catalog` / `a8cf8fd3-fa70-42ed-b83c-83dc326909a9`
+```bash
+API_ID=28694000 API_HASH=401983247e9767295aac40a0b53cc07c \
+GROUP=-1002514429549 INGEST_KEY=... python3 scripts/telegram_backfill.py --qr
+```
 
 ---
-Built with ❤️ by NJCreative
+Built by NJ Stream AI Agents 🧠📚📺📱🎬🔍
