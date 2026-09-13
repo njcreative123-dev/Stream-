@@ -16,3 +16,5 @@ verify_tv_live.mjs
 *.session
 *.pyc
 __pycache__/
+*.mjs
+*.sh
