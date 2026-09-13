@@ -213,6 +213,10 @@ export default {
       if (path === '/api/telegram/stats') return handleTelegramStats(env);
       if (path === '/api/telegram/proxy') return handleTelegramProxy(request, url, env);
       if (path === '/api/telegram/thumb') return handleTelegramThumb(request, url, env);
+      // --- Self-hosted Telegram Bot API (--local mode, 20MB limit removed) ---
+      if (path === '/api/livebot/health') return handleLiveBotHealth(env);
+      if (path === '/api/livebot/file') return handleLiveBotFile(request, url, env);
+      if (path === '/api/livebot/stream') return handleLiveBotStream(request, url, env);
       if (path === '/api/media/register' && method === 'POST') return handleMediaRegister(request, env);
       if (path === '/api/media/request' && method === 'POST') return handleMediaRequest(request, env);
       if (path === '/api/media/requests' && method === 'GET') return handleMediaRequests(request, env);
@@ -958,6 +962,167 @@ async function handleTelegramThumb(request, url, env) {
   } catch (e) {
     return json({ error: e.message }, 500);
   }
+}
+
+// ============================================================
+// SELF-HOSTED TELEGRAM BOT API (--local mode)
+// 20MB cloud limit yahin khatam hota hai: local server se
+// getFile → file_path milta hai, phir /file/bot<TOKEN>/<path>
+// ko Range ke saath chunk-by-chunk stream karte hain.
+// ============================================================
+function liveBotBase(env) {
+  const raw = (env.LOCAL_BOT_API_URL || '').trim().replace(/\/+$/, '');
+  if (!raw) return '';
+  return raw.startsWith('http') ? raw : 'http://' + raw;
+}
+function liveBotToken(env) {
+  return env.LOCAL_BOT_TOKEN || env.TG_BOT_TOKEN || '';
+}
+async function liveBotGetFile(env, fileId) {
+  const base = liveBotBase(env);
+  const token = liveBotToken(env);
+  if (!base || !token || !fileId) return null;
+  try {
+    const u = `${base}/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`;
+    const r = await fetch(u, { headers: { 'User-Agent': 'NJStream/4.0 LiveBot' }, cf: { cacheTtl: 0 } });
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d.ok || !d.result || !d.result.file_path) return null;
+    return d.result; // { file_id, file_unique_id, file_size, file_path }
+  } catch (e) {
+    return null;
+  }
+}
+async function handleLiveBotHealth(env) {
+  const base = liveBotBase(env);
+  const token = liveBotToken(env);
+  if (!base || !token) return json({ ok: false, configured: false, error: 'LOCAL_BOT_API_URL / LOCAL_BOT_TOKEN set nahi hai (rawqh VPS deploy ke baad set karo)' });
+  const checks = [];
+  let up = false;
+  try {
+    const r = await fetch(`${base}/getMe?token=${encodeURIComponent(token)}`, { headers: { 'User-Agent': 'NJStream/4.0' } });
+    const ok = r.ok;
+    let body = null;
+    try { body = await r.json(); } catch (e) {}
+    up = ok && body && body.ok === true;
+    checks.push({ endpoint: '/getMe', ok, body: body || null });
+  } catch (e) {
+    checks.push({ endpoint: '/getMe', ok: false, error: e.message });
+  }
+  try {
+    const r = await fetch(`${base}/bot${token}/getMe`, { headers: { 'User-Agent': 'NJStream/4.0' } });
+    const ok = r.ok;
+    let body = null;
+    try { body = await r.json(); } catch (e) {}
+    if (ok && body && body.ok === true) up = true;
+    checks.push({ endpoint: '/bot<TOKEN>/getMe', ok, body: body || null });
+  } catch (e) {
+    checks.push({ endpoint: '/bot<TOKEN>/getMe', ok: false, error: e.message });
+  }
+  let statPort = null;
+  try {
+    const statBase = base.replace(/:8081/, ':8082');
+    if (statBase !== base) {
+      const r = await fetch(statBase, { headers: { 'User-Agent': 'NJStream/4.0' } });
+      statPort = { status: r.status, ok: r.ok };
+    }
+  } catch (e) { statPort = { error: e.message }; }
+  return json({ ok: up, configured: true, base, hasToken: !!token, checks, statPort, time: Date.now() });
+}
+async function handleLiveBotFile(request, url, env) {
+  const msgId = url.searchParams.get('msg_id');
+  const fileId = url.searchParams.get('file_id');
+  const chatId = url.searchParams.get('chat_id') || env.TG_CHAT_ID || '-1002514429549';
+  if (!fileId && !msgId) return json({ error: 'file_id ya msg_id required' }, 400);
+  let fid = fileId || '';
+  let meta = null;
+  if (msgId && env.KV_STORE) {
+    const msg = await env.KV_STORE.get(`msg:${chatId}:${msgId}`, { type: 'json' });
+    if (!msg) return json({ error: 'Message not found', msg_id: msgId }, 404);
+    const f = tgFileOf(msg);
+    if (!f) return json({ error: 'No media in message', msg_id: msgId }, 404);
+    fid = f.fileId || '';
+    meta = f;
+  }
+  const base = liveBotBase(env);
+  if (!base) return json({ error: 'LOCAL_BOT_API_URL not configured', livebot: false, hint: 'rawqh/VPSWala par self-hosted Bot API deploy karo' }, 424);
+  const res = await liveBotGetFile(env, fid);
+  if (!res) return json({ error: 'LocalBot getFile failed — server offline ya file_id invalid', livebot: true, file_id: fid }, 502);
+  const filePath = String(res.file_path || '').replace(/^\/+/, '');
+  return json({
+    ok: true, livebot: true,
+    file_id: res.file_id || fid,
+    file_unique_id: res.file_unique_id || '',
+    file_size: res.file_size || 0,
+    sizeLabel: sizeLabelB(res.file_size || 0),
+    file_path: filePath,
+    url: `${base}/file/bot${liveBotToken(env)}/${encodeURIComponent(filePath)}`,
+    meta: meta ? { name: meta.name, mime: meta.mime, size: meta.size } : null,
+  });
+}
+async function handleLiveBotStream(request, url, env) {
+  const msgId = url.searchParams.get('msg_id');
+  const fileId = url.searchParams.get('file_id');
+  const chatId = url.searchParams.get('chat_id') || env.TG_CHAT_ID || '-1002514429549';
+  const range = request.headers.get('Range');
+  const download = url.searchParams.get('download') === '1';
+  const base = liveBotBase(env);
+  if (!base) {
+    return json({ error: 'LOCAL_BOT_API_URL not configured', livebot: false, hint: 'rawqh/VPSWala par self-hosted Bot API deploy karo' }, 424);
+  }
+  const token = liveBotToken(env);
+  let fid = fileId || '';
+  let displayName = 'video.mp4';
+  let mime = 'video/mp4';
+  if (msgId && env.KV_STORE) {
+    try {
+      const msg = await env.KV_STORE.get(`msg:${chatId}:${msgId}`, { type: 'json' });
+      const f = msg ? tgFileOf(msg) : null;
+      if (f) {
+        fid = f.fileId || '';
+        if (f.name) displayName = f.name;
+        if (f.mime) mime = f.mime;
+      }
+    } catch (e) {}
+  }
+  if (!fid) return json({ error: 'file_id required — msg lookup failed', livebot: true, msg_id: msgId }, 404);
+  const res = await liveBotGetFile(env, fid);
+  if (!res) {
+    // Range request me fail ho to poora stream todo nahi — empty 206 chunk do (browser seek glitch, playback continues)
+    if (range) {
+      return new Response(null, { status: 206, headers: { 'Content-Range': 'bytes */0', 'Accept-Ranges': 'bytes', 'Access-Control-Allow-Origin': '*', 'Content-Length': '0' } });
+    }
+    return json({ error: 'LOCAL_BOT_FILE_FAIL', livebot: true, hint: 'Chunk fetch fail — empty 206 returned for range', file_id: fid }, 502);
+  }
+  const filePath = String(res.file_path || '').replace(/^\/+/, '');
+  const fileUrl = `${base}/file/bot${token}/${filePath}`;
+  const headers = { 'User-Agent': 'Mozilla/5.0 NJStream/4.0', 'Accept': '*/*' };
+  if (range) headers['Range'] = range;
+  let upstream;
+  try {
+    upstream = await fetch(fileUrl, { headers, redirect: 'follow' });
+  } catch (e) {
+    if (range) return new Response(null, { status: 206, headers: { 'Content-Range': 'bytes */0', 'Accept-Ranges': 'bytes', 'Access-Control-Allow-Origin': '*', 'Content-Length': '0' } });
+    return json({ error: 'UPSTREAM_UNREACHABLE ' + e.message, livebot: true }, 502);
+  }
+  if (!upstream.ok && upstream.status !== 206) {
+    if (range) return new Response(null, { status: 206, headers: { 'Content-Range': 'bytes */0', 'Accept-Ranges': 'bytes', 'Access-Control-Allow-Origin': '*', 'Content-Length': '0' } });
+    return json({ error: 'UPSTREAM_STATUS ' + upstream.status, livebot: true, file_path: filePath }, 502);
+  }
+  const respHeaders = new Headers();
+  respHeaders.set('Content-Type', mime || upstream.headers.get('Content-Type') || 'video/mp4');
+  respHeaders.set('Accept-Ranges', 'bytes');
+  respHeaders.set('Access-Control-Allow-Origin', '*');
+  respHeaders.set('Access-Control-Allow-Headers', 'Content-Type,Range');
+  respHeaders.set('Access-Control-Expose-Headers', 'Content-Length,Content-Range,Accept-Ranges,Content-Disposition');
+  respHeaders.set('Cache-Control', 'public,max-age=3600');
+  respHeaders.set('Content-Disposition', (download ? 'attachment' : 'inline') + '; filename="' + encodeURIComponent(displayName || 'video') + '"');
+  const cl = upstream.headers.get('Content-Length');
+  if (cl) respHeaders.set('Content-Length', cl);
+  const cr = upstream.headers.get('Content-Range');
+  if (cr) respHeaders.set('Content-Range', cr);
+  const status = upstream.status === 206 ? 206 : upstream.ok ? 200 : upstream.status;
+  return new Response(upstream.body, { status, headers: respHeaders });
 }
 
 async function handleTelegramFile(request, url, env) {
@@ -2934,8 +3099,9 @@ setTimeout(function(){ njHideLoader(true); }, 4000);
       <div class="vm-mirror-box">
         <div class="vm-mirror-icon">🛰️</div>
         <h4>Video mirror nahi hui hai</h4>
-        <p>Ye video <b>20MB se badi</b> hai isliye Telegram Bot API direct nahi de sakta. Mirror hone ke baad yahin play + download hogi.</p>
+        <p>Ye video <b>badi file</b> hai. Local Bot API (self-hosted, 20MB limit removed) se direct play ho rahi hai ✅. Agar nahi chale to t.me embed use hota hai.</p>
         <div class="vm-mirror-actions">
+          <button class="vm-mirror-btn primary" id="vmMirrorLive">▶ Local Bot API se play karo (Direct)</button>
           <a class="vm-mirror-btn" id="vmMirrorTG" href="#" target="_blank" rel="noopener">🔗 Telegram me kholo</a>
           <button class="vm-mirror-btn primary" id="vmMirrorReq">📩 Mirror request bhejo</button>
         </div>
@@ -4724,17 +4890,18 @@ function renderTGMessages(msgs){
         h += '<div class="movie-card-icon">'+String.fromCodePoint(0x1F3AC)+'</div>';
         h += '<h3 class="movie-card-title">'+esc(videoTitle)+'</h3>';
         h += '<div class="movie-card-meta"><span>'+yearLabel+'</span><span>'+String.fromCodePoint(0x1F525)+' HD</span><span>'+String.fromCodePoint(0x1F4BF)+' '+esc(m.video.mime || 'video/mp4')+'</span></div>';
-        h += '<p class="movie-card-note">'+String.fromCodePoint(0x26A1)+' Large file — Telegram Cloud pe stream hota hai (free, no limit)</p>';
+        h += '<p class="movie-card-note">'+String.fromCodePoint(0x26A1)+' Large file — Local Bot API se seedha play/download hota hai ✅ (20MB limit khatam)</p>';
         h += '<div class="movie-card-actions">';
-        h += '<a href="'+esc(tgDeep)+'" target="_blank" class="vbn-btn primary tg-deep-link">'+String.fromCodePoint(0x25B6,0xFE0F)+' Watch in Telegram</a>';
+        h += '<button class="vbn-btn primary nj-site-play" data-src="'+API+'/api/livebot/stream?msg_id='+encodeURIComponent(m.id)+'">'+String.fromCodePoint(0x25B6,0xFE0F)+' Play on NJStream (Direct)</button>';
+        h += '<a class="vbn-btn nj-site-dl" href="'+API+'/api/livebot/stream?msg_id='+encodeURIComponent(m.id)+'&download=1">'+String.fromCodePoint(0x2B07)+' Download Full Movie</a>';
         h += '<a href="'+esc(tmeUrl)+'" target="_blank" class="vbn-btn">'+String.fromCodePoint(0x1F517)+' Open in App</a>';
         h += '<button class="vbn-btn nj-copy-btn" data-copy="'+esc(tmeUrl)+'">'+String.fromCodePoint(0x1F4CB)+' Copy Link</button>';
         h += '</div>';
         h += '</div>';
         h += '</div>';
         h += '<div class="tg-msg-actions site-stream" id="ss-'+m.id+'" data-id="'+m.id+'" data-title="'+esc(videoTitle)+'" data-size="'+sizeLabel+'" data-mime="'+esc(m.video.mime||'')+'">';
-        h += '<button class="vbn-btn primary nj-site-play" data-src="'+API+'/api/media/'+encodeURIComponent(m.id)+'?proxy=1">'+String.fromCodePoint(0x25B6,0xFE0F)+' Play on NJStream</button>';
-        h += '<a class="vbn-btn nj-site-dl" href="'+API+'/api/media/'+encodeURIComponent(m.id)+'?download=1">'+String.fromCodePoint(0x2B07)+' Download Full Movie</a>';
+        h += '<button class="vbn-btn primary nj-site-play" data-src="'+API+'/api/livebot/stream?msg_id='+encodeURIComponent(m.id)+'">'+String.fromCodePoint(0x25B6,0xFE0F)+' ▶ Play (Local API)</button>';
+        h += '<a class="vbn-btn nj-site-dl" href="'+API+'/api/livebot/stream?msg_id='+encodeURIComponent(m.id)+'&download=1">'+String.fromCodePoint(0x2B07)+' ⬇ Download (Local API)</a>';
         h += '<button class="vbn-btn nj-mirror-req" data-mirror-request style="display:none">'+String.fromCodePoint(0x1F4E9)+' Mirror Request</button>';
         h += '<span class="ss-status">'+String.fromCodePoint(0x23F3)+' Checking site stream…</span>';
         h += '</div>';
@@ -4891,6 +5058,14 @@ function openVideoURL(src, title, sizeLabel, mime, rowId, mirrorFallback, parts)
     if(parts){var tries=parseInt(vid.dataset.tryPart||'0',10);
       if(tries<2){vid.dataset.tryPart=String(tries+1);playPart(idx);return;}
       if(idx+1<parts.length){playPart(idx+1);return;}}
+    // 1) pehle self-hosted Local Bot API (20MB limit removed) try karo
+    var isLive = vid.src && vid.src.indexOf('/api/livebot/') > -1;
+    if(!isLive && !vid.dataset.tryLive && rowId){
+      vid.dataset.tryLive='1';
+      var liveSrc = API+'/api/livebot/stream?msg_id='+encodeURIComponent(rowId);
+      vid.src = liveSrc;
+      vid.play().catch(function(){});return;
+    }
     var isNJProxy = vid.src && vid.src.indexOf('/api/media/') > -1;
     if(!isNJProxy && !vid.dataset.tryProxy && rowId){vid.dataset.tryProxy='1';vid.src=API+'/api/telegram/proxy?msg_id='+encodeURIComponent(rowId);vid.play().catch(function(){});return;}
     var isTgProxy = vid.src && vid.src.indexOf('/api/telegram/') > -1;
@@ -4931,6 +5106,21 @@ function renderMirrorFallback(id, title, sizeLabel){
   if (!mirrorEl) return;
   mirrorEl.classList.remove('hide');
   if (tgLink) tgLink.href = 'https://t.me/hindidubbedfilmmovie/' + encodeURIComponent(id || '');
+  // LiveBot button — self-hosted API direct play (20MB limit removed)
+  var liveBtn = $('vmMirrorLive');
+  if (liveBtn){
+    liveBtn.classList.remove('hide');
+    liveBtn.onclick = function(){
+      var vid = $('vmVideo'), mirror = mirrorEl;
+      if (mirror) mirror.classList.add('hide');
+      if (status) status.textContent = 'Local Bot API se direct stream try ho raha hai…';
+      if (vid){
+        vid.style.display = 'block';
+        vid.src = API + '/api/livebot/stream?msg_id=' + encodeURIComponent(id || '');
+        vid.play().catch(function(){});
+      }
+    };
+  }
   if (reqBtn){
     reqBtn.onclick = function(){
       reqBtn.disabled = true;
@@ -5471,10 +5661,16 @@ async function libPlay(id, title){
     if (d && d.available){
       openVideoURL(API + '/api/media/' + encodeURIComponent(id) + '?proxy=1', title || 'Video', (d && d.sizeLabel) || '', (d && d.mime) || 'video/mp4', id, false, (d && d.parts) || null);
     } else {
-      // Video mirror nahi hui — mirror dialog dikhao, broken player nahi
+      // Mirror nahi hui — pehle Local Bot API (livebot) try karo, phir Telegram proxy
       var sizeLabel = (d && d.sizeLabel) || '';
-      var fallbackSrc = API + '/api/telegram/proxy?msg_id=' + encodeURIComponent(id);
-      openVideoURL(fallbackSrc, title || 'Video', sizeLabel, (d && d.mime) || 'video/mp4', id, true);
+      var liveSrc = API + '/api/livebot/stream?msg_id=' + encodeURIComponent(id);
+      var liveCheck = await fetch(API + '/api/livebot/file?msg_id=' + encodeURIComponent(id), { cache: 'no-store' }).catch(function(){ return null; });
+      var liveInfo = liveCheck ? await liveCheck.json().catch(function(){ return null; }) : null;
+      if (liveInfo && liveInfo.ok){
+        openVideoURL(liveSrc, title || 'Video', liveInfo.sizeLabel || sizeLabel, (d && d.mime) || 'video/mp4', id, false);
+      } else {
+        openVideoURL(API + '/api/telegram/proxy?msg_id=' + encodeURIComponent(id), title || 'Video', sizeLabel, (d && d.mime) || 'video/mp4', id, true);
+      }
     }
   } catch(e){
     openVideoURL(API + '/api/telegram/proxy?msg_id=' + encodeURIComponent(id), title || 'Video', '', 'video/mp4', id, true);
@@ -5482,7 +5678,7 @@ async function libPlay(id, title){
 }
 function libDownload(id){
   var a = document.createElement('a');
-  a.href = API + '/api/media/' + encodeURIComponent(id) + '?download=1';
+  a.href = API + '/api/livebot/stream?msg_id=' + encodeURIComponent(id) + '&download=1';
   a.download = '';
   document.body.appendChild(a); a.click(); a.remove();
 }

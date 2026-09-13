@@ -1,0 +1,16 @@
+[Unit]
+Description=NJStream Telegram Bot (MonkeyBytes)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/njstream-bot
+EnvironmentFile=/opt/njstream-bot/.env
+ExecStart=/usr/bin/node /opt/njstream-bot/bot.js
+Restart=always
+RestartSec=5
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target

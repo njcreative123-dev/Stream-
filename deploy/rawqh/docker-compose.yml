@@ -1,0 +1,33 @@
+# ============================================================
+# NJStream — Self-hosted Telegram Bot API (rawqh primary VPS)
+# --local mode: download limit removed (uploads up to 2GB,
+# downloads unlimited). Official tdlib binary image.
+#
+# Public IP: <RAWQH_PUBLIC_IP> (user dashboard se le aao)
+# Ports: 8081 (HTTP Bot API)  8082 (Stats)
+# ============================================================
+version: "3.8"
+
+services:
+  telegram-bot-api:
+    image: tdlib/telegram-bot-api:latest
+    container_name: njstream-telegram-api
+    restart: unless-stopped
+    command:
+      - --api-id=28694000
+      - --api-hash=401983247e9767295aac40a0b53cc07c
+      - --http-port=8081
+      - --http-stat-port=8082
+      - --local
+      - --dir=/data
+      - --temp-dir=/tmp
+      - --verbosity=1
+    volumes:
+      - tg-api-data:/data
+    ports:
+      - "8081:8081"
+      - "8082:8082"
+
+volumes:
+  tg-api-data:
+    driver: local
