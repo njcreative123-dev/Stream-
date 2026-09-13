@@ -602,7 +602,10 @@ async function serveStreamFromUpstream(request, upstreamUrl, opts) {
   const download = !!o.download;
   const range = request.headers.get('Range');
   const headers = { 'User-Agent': 'Mozilla/5.0 NJStream/3.0', 'Accept': '*/*' };
+  // Range nahi hai to sirf first 1MB fetch karo — browser ko 206 + Content-Range do,
+  // phir browser khud seek ke liye proper Range requests bhejega (fast startup + seek).
   if (range) headers['Range'] = range;
+  else if (!download) headers['Range'] = 'bytes=0-1048575';
   let upstream;
   try {
     upstream = await fetch(upstreamUrl, { headers, redirect: 'follow' });
@@ -4133,6 +4136,7 @@ document.addEventListener('click', function(e){
   n = t.closest('[data-send]');  if (n) { sendChat(); return; }
   n = t.closest('[data-fam-start]'); if (n) { startFamilySession(); return; }
   n = t.closest('[data-fam-send]');  if (n) { sendFamilyMessage(); return; }
+  n = t.closest('[data-direct-play]'); if (n) { playDirect(n.getAttribute('data-direct-play'), n.getAttribute('data-libt')||'Video'); return; }
   n = t.closest('[data-libplay]');  if (n) { libPlay(n.getAttribute('data-libplay'), n.getAttribute('data-libt')||'Video'); return; }
   n = t.closest('[data-libdl]');    if (n) { libDownload(n.getAttribute('data-libdl')); return; }
   n = t.closest('[data-libopen]');  if (n) { libOpen(n.getAttribute('data-libopen')); return; }
@@ -4890,18 +4894,18 @@ function renderTGMessages(msgs){
         h += '<div class="movie-card-icon">'+String.fromCodePoint(0x1F3AC)+'</div>';
         h += '<h3 class="movie-card-title">'+esc(videoTitle)+'</h3>';
         h += '<div class="movie-card-meta"><span>'+yearLabel+'</span><span>'+String.fromCodePoint(0x1F525)+' HD</span><span>'+String.fromCodePoint(0x1F4BF)+' '+esc(m.video.mime || 'video/mp4')+'</span></div>';
-        h += '<p class="movie-card-note">'+String.fromCodePoint(0x26A1)+' Large file — Local Bot API se seedha play/download hota hai ✅ (20MB limit khatam)</p>';
+        h += '<p class="movie-card-note">'+String.fromCodePoint(0x26A1)+' Full movie — direct play + download ready ✅ (20MB limit bypass: GitHub mirror + Range streaming)</p>';
         h += '<div class="movie-card-actions">';
-        h += '<button class="vbn-btn primary nj-site-play" data-src="'+API+'/api/livebot/stream?msg_id='+encodeURIComponent(m.id)+'">'+String.fromCodePoint(0x25B6,0xFE0F)+' Play on NJStream (Direct)</button>';
-        h += '<a class="vbn-btn nj-site-dl" href="'+API+'/api/livebot/stream?msg_id='+encodeURIComponent(m.id)+'&download=1">'+String.fromCodePoint(0x2B07)+' Download Full Movie</a>';
+        h += '<button class="vbn-btn primary" data-direct-play="'+encodeURIComponent(m.id)+'" data-libt="'+esc(videoTitle)+'">'+String.fromCodePoint(0x25B6,0xFE0F)+' Play on NJStream</button>';
+        h += '<button class="vbn-btn nj-lib-dl" data-libdl="'+encodeURIComponent(m.id)+'">'+String.fromCodePoint(0x2B07)+' Download Full Movie</button>';
         h += '<a href="'+esc(tmeUrl)+'" target="_blank" class="vbn-btn">'+String.fromCodePoint(0x1F517)+' Open in App</a>';
         h += '<button class="vbn-btn nj-copy-btn" data-copy="'+esc(tmeUrl)+'">'+String.fromCodePoint(0x1F4CB)+' Copy Link</button>';
         h += '</div>';
         h += '</div>';
         h += '</div>';
         h += '<div class="tg-msg-actions site-stream" id="ss-'+m.id+'" data-id="'+m.id+'" data-title="'+esc(videoTitle)+'" data-size="'+sizeLabel+'" data-mime="'+esc(m.video.mime||'')+'">';
-        h += '<button class="vbn-btn primary nj-site-play" data-src="'+API+'/api/livebot/stream?msg_id='+encodeURIComponent(m.id)+'">'+String.fromCodePoint(0x25B6,0xFE0F)+' ▶ Play (Local API)</button>';
-        h += '<a class="vbn-btn nj-site-dl" href="'+API+'/api/livebot/stream?msg_id='+encodeURIComponent(m.id)+'&download=1">'+String.fromCodePoint(0x2B07)+' ⬇ Download (Local API)</a>';
+        h += '<button class="vbn-btn primary" data-direct-play="'+encodeURIComponent(m.id)+'" data-libt="'+esc(videoTitle)+'">'+String.fromCodePoint(0x25B6,0xFE0F)+' ▶ Play on NJStream</button>';
+        h += '<button class="vbn-btn nj-lib-dl" data-libdl="'+encodeURIComponent(m.id)+'">'+String.fromCodePoint(0x2B07)+' ⬇ Download Movie</button>';
         h += '<button class="vbn-btn nj-mirror-req" data-mirror-request style="display:none">'+String.fromCodePoint(0x1F4E9)+' Mirror Request</button>';
         h += '<span class="ss-status">'+String.fromCodePoint(0x23F3)+' Checking site stream…</span>';
         h += '</div>';
@@ -5026,7 +5030,7 @@ function openVideoURL(src, title, sizeLabel, mime, rowId, mirrorFallback, parts)
   parts=(parts&&parts.length)?parts:null;
   var idx=0,speeds=[.5,.75,1,1.25,1.5,2],spdIdx=2,hideTimer=null,seeking=false,ctrlBarShow;
   titleEl.textContent=title||'Video';sizeEl.textContent=sizeLabel||'';
-  vid.pause();vid.src='';vid.style.display='none';thumb.style.display='block';
+  vid.pause();vid.src='';vid.style.display='none';thumb.style.display='block';vid.style.display='none';
   playBtn.style.display='flex';playBtn.style.opacity='1';
   modal.classList.remove('hide');document.body.style.overflow='hidden';
   var isShort=window.innerWidth<600;
@@ -5658,7 +5662,7 @@ async function libPlay(id, title){
   try {
     var r = await fetch(API + '/api/media/' + encodeURIComponent(id) + '?probe=1', { cache: 'no-store' });
     var d = await r.json();
-    if (d && d.available){
+        if (d && d.available){
       openVideoURL(API + '/api/media/' + encodeURIComponent(id) + '?proxy=1', title || 'Video', (d && d.sizeLabel) || '', (d && d.mime) || 'video/mp4', id, false, (d && d.parts) || null);
     } else {
       // Mirror nahi hui — pehle Local Bot API (livebot) try karo, phir Telegram proxy
@@ -5678,9 +5682,19 @@ async function libPlay(id, title){
 }
 function libDownload(id){
   var a = document.createElement('a');
-  a.href = API + '/api/livebot/stream?msg_id=' + encodeURIComponent(id) + '&download=1';
   a.download = '';
-  document.body.appendChild(a); a.click(); a.remove();
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  var fallback = function(){
+    a.href = API + '/api/livebot/stream?msg_id=' + encodeURIComponent(id) + '&download=1';
+    a.click(); a.remove();
+  };
+  fetch(API + '/api/media/' + encodeURIComponent(id) + '?probe=1', { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(d){
+    if (d && d.available){
+      a.href = API + '/api/media/' + encodeURIComponent(id) + '?download=1';
+      a.click(); a.remove();
+    } else fallback();
+  }).catch(fallback);
 }
 function libOpen(id){
   var a = document.createElement('a');
@@ -5812,6 +5826,30 @@ if (typeof window !== 'undefined') {
   window.njVidErr = njVidErr;
   window.njCopyLink = njCopyLink;
   window.loadTG = loadTG;
+  
+  window.playDirect = function(id, title){
+    var overlay = document.createElement('div');
+    overlay.id = 'njFullVideoOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;';
+    var closeBtn = document.createElement('button');
+    closeBtn.textContent = '\u2715';
+    closeBtn.style.cssText = 'position:absolute;top:10px;right:16px;z-index:100000;background:none;color:#fff;font-size:28px;cursor:pointer;border:none;';
+    closeBtn.onclick = function(){ overlay.remove(); document.body.style.overflow=''; };
+    var vid = document.createElement('video');
+    vid.controls = true;
+    vid.autoplay = true;
+    vid.style.cssText = 'max-width:95vw;max-height:90vh;border-radius:8px;';
+    vid.src = API + '/api/media/' + encodeURIComponent(id) + '?proxy=1';
+    var titleEl = document.createElement('div');
+    titleEl.textContent = title || '';
+    titleEl.style.cssText = 'color:#fff;margin-top:10px;font-size:14px;';
+    overlay.appendChild(closeBtn);
+    overlay.appendChild(vid);
+    overlay.appendChild(titleEl);
+    document.body.appendChild(overlay);
+    document.body.style.overflow='hidden';
+  };
+
   window.filterTGMessages = filterTGMessages;
   window.__tgDebug = function(){ return { arrLen: tgMessages.length, offset: tgState.offset, hasMore: tgState.hasMore, loading: tgState.loading, type: state.tgType, q: ($('tgSearch')?$('tgSearch').value:''), rendered: document.querySelectorAll('#tgMessages .tg-msg').length }; };
 }

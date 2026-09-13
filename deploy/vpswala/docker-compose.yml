@@ -1,6 +1,6 @@
 # ============================================================
 # NJStream — Backup Self-hosted Telegram Bot API (VPSWala)
-# Host ports 8083/8084 (container 8081/8082) — rawqh se alag
+# Ports: 8083/8084 (avoids conflict with rawqh)
 # ============================================================
 version: "3.8"
 
@@ -22,6 +22,11 @@ services:
     ports:
       - "8083:8081"
       - "8084:8082"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/getMe || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   tg-api-data:
