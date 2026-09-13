@@ -2936,6 +2936,7 @@ setTimeout(function(){ njHideLoader(true); }, 4000);
     <!-- FAMILY ROOM (sab agents + humans ek saath) -->
     <section class="page" id="pg-family">
       <div class="page-head"><h1 class="grad-text">👨‍👩‍👧‍👦 Family Room — AI Family Live</h1><p>NJ, Telly, Filmy, Kitabi, Sathi, Khojo + Aap — sab ek room mein baat karte hain</p><div class="agent3d" data-avatar="nj"></div></div>
+<div class="af-tabs"><button class="af-tab active" data-af-tab="family">👨‍👩‍👧‍👦 Family Room</button><button class="af-tab" data-af-tab="ai">💬 AI Chat</button><button class="af-tab" data-af-tab="nj">🧠 NJ Room</button></div>
       <div class="fam-controls">
         <button class="fam-start" data-fam-start id="famStartBtn">▶ Family Meeting Shuru Karo</button>
         <span class="fam-status" id="famStatus"></span>
@@ -3493,6 +3494,7 @@ iframe[src*="t.me"]{width:100%!important;min-height:280px!important}
 .chat-input input{flex:1;padding:12px 15px;background:var(--card2);border:1px solid var(--border);border-radius:12px;color:var(--text);font-size:13.5px;outline:none}
 .chat-input input:focus{border-color:var(--accent)}
 .chat-input button{background:var(--grad);border:none;border-radius:12px;padding:0 18px;color:#fff;font-weight:800;cursor:pointer;font-size:13px}
+.af-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px}.af-tab{padding:10px 16px;border-radius:12px;font-size:13px;font-weight:800;color:var(--text2);background:var(--card2);border:1px solid var(--border);cursor:pointer;transition:.18s;display:inline-flex;align-items:center;gap:6px}.af-tab:hover{border-color:var(--accent);color:var(--text)}.af-tab.active{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(34,211,238,.25)}
 .auth-logo{text-align:center;margin-bottom:24px}
 .auth-logo svg{margin:0 auto 12px}
 .auth-logo h2{font-size:22px;font-weight:800;margin-bottom:4px}
@@ -4086,7 +4088,7 @@ function go(page){
   document.querySelectorAll('.nav-btn').forEach(function(b){ b.classList.remove('active'); });
   var pg = $('pg-'+page);
   if (pg) pg.classList.add('active');
-  if (page==='af'){ var ai=$('pg-ai'), fam=$('pg-family'), njp=$('pg-nj'); if (ai) ai.classList.add('active'); if (fam) fam.classList.add('active'); if (njp) njp.classList.add('active'); }
+  if (page==='af'){ setAFTab(state.afTab || 'family'); }
   var btn = document.querySelector('[data-nav="'+page+'"]');
   if (btn) btn.classList.add('active');
   state.page = page;
@@ -4116,6 +4118,24 @@ function go(page){
   if (page==='login')   switchAuthTab('login');
 }
 
+function setAFTab(tab){
+  state.afTab = tab;
+  var ai=$('pg-ai'), fam=$('pg-family'), njp=$('pg-nj');
+  [ai, fam, njp].forEach(function(p){ if (p) p.classList.remove('active'); });
+  var target = tab==='ai' ? ai : (tab==='nj' ? njp : fam);
+  if (target) target.classList.add('active');
+  document.querySelectorAll('[data-af-tab]').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-af-tab')===tab); });
+  var nav = document.querySelector('[data-nav="af"]');
+  if (nav) nav.classList.add('active');
+  try { if (location.hash !== '#af') history.replaceState(null, '', '#af'); } catch(e){}
+  try { syncMobileNav(); } catch(e){}
+  var main = $('main');
+  if (main) main.scrollTop = 0;
+  if (tab==='ai'){ initAIChat(); }
+  if (tab==='family'){ loadFamilyChat(false); setTimeout(function(){ var cb=document.querySelector('#pg-family .chat-box'); if (cb) cb.scrollIntoView({block:'start',behavior:'smooth'}); }, 250); }
+  if (tab==='nj'){ loadNJRoom(); }
+}
+
 /* ---------- Events ---------- */
 document.addEventListener('click', function(e){
   var t = e.target, n;
@@ -4134,6 +4154,7 @@ document.addEventListener('click', function(e){
   n = t.closest('[data-search]'); if (n) { doSearch(); return; }
   n = t.closest('[data-ask]');   if (n) { $('chatIn').value = n.getAttribute('data-ask'); sendChat(); return; }
   n = t.closest('[data-send]');  if (n) { sendChat(); return; }
+  n = t.closest('[data-af-tab]'); if (n) { setAFTab(n.getAttribute('data-af-tab')); return; }
   n = t.closest('[data-fam-start]'); if (n) { startFamilySession(); return; }
   n = t.closest('[data-fam-send]');  if (n) { sendFamilyMessage(); return; }
   n = t.closest('[data-direct-play]'); if (n) { playDirect(n.getAttribute('data-direct-play'), n.getAttribute('data-libt')||'Video'); return; }
