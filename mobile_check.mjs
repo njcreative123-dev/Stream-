@@ -1,0 +1,18 @@
+import { chromium } from 'playwright';
+const exe = '/data/user/0/gptos.intelligence.assistant/files/rootfs/root/.cache/ms-playwright/chromium-1243/chrome-linux-arm64/chrome';
+const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
+const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+await page.goto('https://njsoft-stream.njcreative123.workers.dev', { waitUntil:'domcontentloaded' }).catch(()=>{});
+await page.waitForTimeout(5000);
+console.log('start active:', await page.evaluate(() => [...document.querySelectorAll('.page.active')].map(p => p.id).join(',')));
+await page.evaluate(() => document.querySelector('[data-nav="movies"]').click());
+await page.waitForTimeout(5000);
+console.log('movies active:', await page.evaluate(() => [...document.querySelectorAll('.page.active')].map(p => p.id).join(',')));
+console.log('movies head visible:', await page.evaluate(() => { const h=document.querySelector('#pg-movies h1'); return h ? (getComputedStyle(h).display + ' ' + h.textContent) : 'missing'; }));
+const shot1 = await page.screenshot();
+await page.evaluate(() => document.querySelector('[data-nav="admin"]').click());
+await page.waitForTimeout(3000);
+console.log('admin active:', await page.evaluate(() => [...document.querySelectorAll('.page.active')].map(p => p.id).join(',')));
+const shot2 = await page.screenshot();
+console.log('shots differ:', !shot1.equals(shot2));
+await browser.close();

@@ -1,0 +1,16 @@
+import { chromium } from 'playwright';
+const exe = '/data/user/0/gptos.intelligence.assistant/files/rootfs/root/.cache/ms-playwright/chromium-1243/chrome-linux-arm64/chrome';
+const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
+const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+await page.goto('https://njsoft-stream.njcreative123.workers.dev', { waitUntil:'domcontentloaded' }).catch(()=>{});
+await page.waitForTimeout(6000);
+console.log('active:', await page.evaluate(() => [...document.querySelectorAll('.page.active')].map(p=>p.id).join(',')));
+console.log('app class:', await page.evaluate(() => document.querySelector('.app').className));
+await page.screenshot({ path: 'MOBILE_fresh_home.png' });
+await page.evaluate(() => document.querySelector('[data-nav="movies"]').click());
+await page.waitForTimeout(4000);
+console.log('movies active:', await page.evaluate(() => [...document.querySelectorAll('.page.active')].map(p=>p.id).join(',')));
+console.log('body bg:', await page.evaluate(() => getComputedStyle(document.body).backgroundColor));
+console.log('main bg:', await page.evaluate(() => { const m=document.querySelector('.main'); return getComputedStyle(m).backgroundColor + ' ' + m.getBoundingClientRect().x + 'x' + m.getBoundingClientRect().width; }));
+await page.screenshot({ path: 'MOBILE_fresh_movies.png' });
+await browser.close();

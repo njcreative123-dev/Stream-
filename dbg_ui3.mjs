@@ -1,0 +1,22 @@
+import { chromium } from 'playwright';
+const URL = 'https://njsoft-stream.njcreative123.workers.dev';
+const exe = '/data/user/0/gptos.intelligence.assistant/files/rootfs/root/.cache/ms-playwright/chromium-1243/chrome-linux-arm64/chrome';
+const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+const fails = [];
+page.on('response', r => { if (r.status() >= 400) fails.push(r.status() + ' ' + r.url().slice(0, 100)); });
+await page.goto(URL, { waitUntil: 'domcontentloaded' }).catch(() => {});
+await page.waitForTimeout(9000);
+console.log('homeReady cards:', await page.evaluate(() => document.querySelectorAll('#homeReady .lib-card').length));
+console.log('homeReady sample:', (await page.evaluate(() => document.getElementById('homeReady').innerHTML)).slice(0, 120));
+await page.evaluate(() => document.querySelector('[data-nav="af"]').click());
+await page.waitForTimeout(3000);
+const act = await page.evaluate(() => {
+  const ids = ['pg-ai','pg-family','pg-nj','pg-admin'];
+  const out = {};
+  ids.forEach(i => { const el = document.getElementById(i); out[i] = el ? el.classList.contains('active') : 'missing'; });
+  return out;
+});
+console.log('active:', JSON.stringify(act));
+console.log('http fails:', fails.slice(0, 5));
+await browser.close();

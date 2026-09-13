@@ -1,0 +1,17 @@
+import { chromium } from 'playwright';
+const URL = 'https://njsoft-stream.njcreative123.workers.dev';
+const exe = '/data/user/0/gptos.intelligence.assistant/files/rootfs/root/.cache/ms-playwright/chromium-1243/chrome-linux-arm64/chrome';
+const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+page.on('response', r => { if (r.status() === 401) console.log('401 ->', r.url(), 'method', r.request().method()); });
+page.on('console', m => { if (m.type() === 'error') console.log('CONSOLE-ERR:', m.text().slice(0, 200)); });
+await page.goto(URL, { waitUntil: 'domcontentloaded' }).catch(()=>{});
+await page.waitForTimeout(6000);
+await page.evaluate(() => document.querySelector('[data-nav="af"]').click());
+await page.waitForTimeout(7000);
+await page.evaluate(() => document.querySelector('[data-nav="movies"]').click());
+await page.waitForTimeout(6000);
+await page.evaluate(() => document.querySelector('[data-nav="admin"]').click());
+await page.waitForTimeout(6000);
+await browser.close();
+console.log('DONE');

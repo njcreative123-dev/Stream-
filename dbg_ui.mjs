@@ -1,0 +1,26 @@
+import { chromium } from 'playwright';
+const URL = 'https://njsoft-stream.njcreative123.workers.dev';
+const exe = '/data/user/0/gptos.intelligence.assistant/files/rootfs/root/.cache/ms-playwright/chromium-1243/chrome-linux-arm64/chrome';
+const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+const logs = [];
+page.on('console', m => logs.push(m.type() + ': ' + m.text().slice(0, 160)));
+page.on('pageerror', e => logs.push('PAGEERR: ' + e.message.slice(0, 160)));
+await page.goto(URL, { waitUntil: 'domcontentloaded' }).catch(() => {});
+await page.waitForTimeout(8000);
+console.log('homeReady innerHTML:', (await page.evaluate(() => document.getElementById('homeReady').innerHTML)).slice(0, 200));
+console.log('homeReady cards:', await page.evaluate(() => document.querySelectorAll('#homeReady .lib-card').length));
+const lib = await page.evaluate(async () => {
+  const r = await fetch('https://njsoft-stream.njcreative123.workers.dev/api/telegram/library?cat=videos&limit=24&sort=date', { cache: 'no-store' });
+  const d = await r.json();
+  const m = (d.items || []).filter(it => it && it.mirror);
+  return { total: (d.items || []).length, mirrored: m.length, sample: m[0] ? m[0].id : null };
+});
+console.log('library in-page:', JSON.stringify(lib));
+await page.evaluate(() => go('af'));
+await page.waitForTimeout(6000);
+console.log('active pages:', await page.evaluate(() => [...document.querySelectorAll('.page.active')].map(p => p.id).join(',')));
+console.log('chat present:', await page.evaluate(() => !!document.getElementById('chatMsgs')));
+console.log('fam present:', await page.evaluate(() => !!document.getElementById('famMsgs')));
+console.log('logs:', logs.slice(0, 8));
+await browser.close();

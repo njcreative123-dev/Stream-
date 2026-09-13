@@ -1,0 +1,15 @@
+import { chromium } from 'playwright';
+const URL = 'https://njsoft-stream.njcreative123.workers.dev';
+const exe = '/data/user/0/gptos.intelligence.assistant/files/rootfs/root/.cache/ms-playwright/chromium-1243/chrome-linux-arm64/chrome';
+const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+const logs = [];
+page.on('console', m => logs.push(m.type() + ': ' + m.text().slice(0, 200)));
+page.on('pageerror', e => logs.push('PAGEERR: ' + e.message.slice(0, 200)));
+await page.goto(URL, { waitUntil: 'domcontentloaded' }).catch(() => {});
+await page.waitForTimeout(12000);
+console.log('homeReady html:', (await page.evaluate(() => document.getElementById('homeReady')?.innerHTML || 'NO EL')).slice(0, 250));
+console.log('cards:', await page.evaluate(() => document.querySelectorAll('#homeReady .lib-card').length));
+console.log('libfallback:', await page.evaluate(() => typeof window.__libFallback));
+console.log('logs:', logs.slice(0, 12));
+await browser.close();

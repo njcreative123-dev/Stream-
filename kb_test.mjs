@@ -1,0 +1,32 @@
+import { chromium } from 'playwright';
+const URL = 'https://njsoft-stream.njcreative123.workers.dev';
+const exe = '/data/user/0/gptos.intelligence.assistant/files/rootfs/root/.cache/ms-playwright/chromium-1243/chrome-linux-arm64/chrome';
+const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+const errs = [];
+page.on('pageerror', e => errs.push(e.message.slice(0,160)));
+await page.goto(URL, { waitUntil:'domcontentloaded' }).catch(()=>{});
+await page.waitForTimeout(4000);
+await page.evaluate(()=>document.querySelector('[data-nav="movies"]').click());
+await page.waitForTimeout(2500);
+await page.evaluate(()=>{const t=[...document.querySelectorAll('[data-mtype]')].find(b=>b.getAttribute('data-mtype')==='tg'); if(t) t.click();});
+await page.waitForTimeout(8000);
+await page.evaluate(()=>{const c=[...document.querySelectorAll('[data-libplay]')].find(x=>x.getAttribute('data-libplay')==='243885'); if(c) c.click();});
+await page.waitForTimeout(1500);
+await page.evaluate(()=>{document.getElementById('vmPlayBtn').click();});
+await page.waitForTimeout(4000);
+const t1 = await page.evaluate(()=>document.getElementById('vmVideo').currentTime);
+// space to pause
+await page.keyboard.press('Space');
+await page.waitForTimeout(700);
+const paused = await page.evaluate(()=>document.getElementById('vmVideo').paused);
+await page.keyboard.press('Space');
+await page.waitForTimeout(1200);
+const t2 = await page.evaluate(()=>document.getElementById('vmVideo').currentTime);
+// arrow right = +10s
+await page.keyboard.press('ArrowRight');
+await page.waitForTimeout(500);
+const t3 = await page.evaluate(()=>document.getElementById('vmVideo').currentTime);
+console.log('t1:', t1.toFixed(1), 'pausedAfterSpace:', paused, 't2:', t2.toFixed(1), 't3AfterArrowRight:', t3.toFixed(1), 'spaceAdvance:', (t2-t1).toFixed(1), 'arrowJump:', (t3-t2).toFixed(1));
+console.log('ERRORS:', errs.length ? errs : 'NONE');
+await browser.close();

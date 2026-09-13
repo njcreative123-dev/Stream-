@@ -1,3 +1,4 @@
+account_id = "18998bfa1e33fe431b59dd938db7907c"
 name = "njsoft-stream"
 main = "src/workers/index.js"
 compatibility_date = "2024-09-01"

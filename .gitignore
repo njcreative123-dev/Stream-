@@ -7,3 +7,12 @@ exported_data/
 .DS_Store
 .env
 deploy_meta.json
+mirror_cache/
+mirror_run.mjs
+batch_mirror.mjs
+mirror_mtproto.mjs
+verify_tv_live.mjs
+*.png
+*.session
+*.pyc
+__pycache__/
