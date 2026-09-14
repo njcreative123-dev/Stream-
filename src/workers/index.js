@@ -233,6 +233,11 @@ export default {
       if (path === '/api/live-tv/probe') return probeChannel(request, url);
 
       // --- Movies ---
+      // --- MovieBox TUI ---
+      if (path === '/api/moviebox/search') return handleMovieBoxSearch(url, env);
+      if (path === '/api/moviebox/stream') return handleMovieBoxStream(request, url, env);
+      if (path === '/api/moviebox/trending') return handleMovieBoxTrending(url, env);
+      if (path === '/api/moviebox/detail/') return handleMovieBoxDetail(url, env);
       if (path === '/api/movies') return handleMovies(url, env);
 
       // --- Books ---
@@ -614,6 +619,7 @@ async function serveStreamFromUpstream(request, upstreamUrl, opts) {
       const hit = await caches.default.match(cacheKey);
       if (hit) {
         const h2 = new Headers(hit.headers);
+        h2.set('Content-Length', h2.get('X-NJStream-Len') || '1048576');
         h2.set('X-NJStream-Cache', 'HIT');
         return new Response(hit.body, { status: 206, headers: h2 });
       }
@@ -681,8 +687,9 @@ async function serveStreamFromUpstream(request, upstreamUrl, opts) {
       const cr = resp.clone();
       const h3 = new Headers(cr.headers);
       h3.set('Cache-Control', 'public, max-age=300');
+      h3.set('X-NJStream-Len', h3.get('Content-Length') || '1048576');
       h3.delete('Set-Cookie');
-      await caches.default.put(cacheKey, new Response(cr.body, { status: 206, headers: h3 }));
+      await caches.default.put(cacheKey, new Response(cr.body, { status: 200, headers: h3 }));
     } catch (e) {}
   }
   return resp;
@@ -2653,6 +2660,7 @@ setTimeout(function(){ njHideLoader(true); }, 4000);
       <button class="nav-btn" data-nav="tv"><span>📺</span>Live TV</button>
       <button class="nav-btn" data-nav="tg"><span>📱</span>Telegram</button>
       <button class="nav-btn" data-nav="movies"><span>🎬</span>Movies & Videos</button>
+      <button class="nav-btn" data-nav="moviebox"><span>🎯</span>MovieBox</button>
       <button class="nav-btn" data-nav="apk"><span>📦</span>Software</button>
       <button class="nav-btn" data-nav="books"><span>📚</span>Books</button>
       <button class="nav-btn" data-nav="search"><span>🔍</span>Search</button>
@@ -2877,6 +2885,17 @@ setTimeout(function(){ njHideLoader(true); }, 4000);
       <div id="moviesGrid" class="media-grid"><div class="loading">Loading movies…</div></div>
     </section>
 
+    
+    <!-- MOVIEBOX TUI -->
+    <section class="page" id="pg-moviebox">
+      <div class="page-head"><h1 class="grad-text">🎯 MovieBox</h1><p>Stream movies from MovieBox — Multiple providers</p><div class="agent3d" data-avatar="filmy"></div></div>
+      <div class="search-bar">
+        <input type="text" id="mbSearch" placeholder="🔍 MovieBox pe search karo…" class="search-input">
+        <button onclick="movieboxSearch()" class="search-btn">Search</button>
+      </div>
+      <div id="mbResults" class="media-grid"><div class="empty">Search for movies & TV shows</div></div>
+      <div id="mbTrending" class="media-grid"></div>
+    </section>
     <!-- BOOKS -->
     <section class="page" id="pg-books">
       <div class="page-head"><h1 class="grad-text">📚 Books</h1><p>Open Library — Free Reading</p><div class="agent3d" data-avatar="kitabi"></div></div>
@@ -4108,6 +4127,99 @@ function syncThemeIcon(){
   if (b) b.textContent = document.documentElement.getAttribute('data-theme') === 'light' ? String.fromCodePoint(0x1F319) : String.fromCodePoint(0x2600,0xFE0F);
 }
 
+function movieboxLoadTrending(){
+  var el = $("mbTrending");
+  if (!el) return;
+  el.innerHTML = "<div class="loading">🎯 Loading trending…</div>";
+  fetch(API + "/api/moviebox/trending")
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d.results || !d.results.length){
+        el.innerHTML = "<div class="empty small">Trending VPSWala deploy ke baad dikhega</div>";
+        return;
+      }
+      var h = "<h3 style="padding:12px 0 8px;color:var(--text2);font-size:14px">🔥 Trending on MovieBox</h3>";
+      d.results.forEach(function(m){
+        h += "<div class="movie-card" onclick="movieboxDetail('" + m.id + "')">";
+        if (m.poster) h += "<img src="" + m.poster + "" class="movie-poster" alt="" + (m.title||"") + "" loading="lazy">";
+        else h += "<div class="movie-poster" style="background:#1a1a2e;display:flex;align-items:center;justify-content:center;font-size:48px">🎬</div>";
+        h += "<div class="movie-info"><h4>" + esc(m.title) + "</h4>";
+        h += "<div class="movie-meta">";
+        if (m.year) h += "<span>" + esc(m.year) + "</span>";
+        if (m.rating) h += "<span>⭐ " + esc(m.rating) + "</span>";
+        h += "</div></div></div>";
+      });
+      el.innerHTML = h;
+    })
+    .catch(function(e){
+      el.innerHTML = "<div class="empty small">⚠️ MovieBox backend offline</div>";
+    });
+}
+
+/* ---------- MovieBox TUI ---------- */
+var mbSearchTimeout = null;
+function movieboxSearch(){
+  var q = ($("mbSearch") || {}).value || "";
+  if (q.length < 2) return;
+  var el = $("mbResults");
+  if (el) el.innerHTML = "<div class="loading">🔍 Searching MovieBox…</div>";
+  fetch(API + "/api/moviebox/search?q=" + encodeURIComponent(q))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d.results || !d.results.length){
+        if (el) el.innerHTML = "<div class="empty">No results found. Backend deploy karo VPSWala pe.</div>";
+        return;
+      }
+      var h = "";
+      d.results.forEach(function(m){
+        h += "<div class="movie-card" onclick="movieboxDetail('" + m.id + "')">";
+        if (m.poster) h += "<img src="" + m.poster + "" class="movie-poster" alt="" + (m.title||"") + "" loading="lazy">";
+        else h += "<div class="movie-poster" style="background:#1a1a2e;display:flex;align-items:center;justify-content:center;font-size:48px">🎬</div>";
+        h += "<div class="movie-info"><h4>" + esc(m.title) + "</h4>";
+        h += "<div class="movie-meta">";
+        if (m.year) h += "<span>" + esc(m.year) + "</span>";
+        if (m.rating) h += "<span>⭐ " + esc(m.rating) + "</span>";
+        h += "<span class="badge-t moviebox">🎯 MovieBox</span>";
+        h += "</div></div></div>";
+      });
+      if (el) el.innerHTML = h;
+    })
+    .catch(function(e){
+      if (el) el.innerHTML = "<div class="empty">⚠️ MovieBox backend offline. VPSWala pe deploy karo.</div>";
+    });
+}
+function movieboxDetail(id){
+  var el = $("mbResults");
+  if (el) el.innerHTML = "<div class="loading">⏳ Loading details…</div>";
+  fetch(API + "/api/moviebox/detail/" + id)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.error){
+        if (el) el.innerHTML = "<div class="empty">⚠️ " + esc(d.error) + "</div>";
+        return;
+      }
+      var h = "<div style="padding:16px">";
+      h += "<button onclick="movieboxSearch()" style="background:none;border:none;color:var(--accent);font-size:14px;cursor:pointer;margin-bottom:12px">← Back to search</button>";
+      h += "<div style="display:flex;gap:16px;flex-wrap:wrap">";
+      if (d.poster) h += "<img src="" + d.poster + "" style="width:150px;border-radius:12px">";
+      h += "<div><h2 style="margin:0 0 8px">" + esc(d.title) + "</h2>";
+      if (d.year) h += "<p style="color:var(--text2)">📅 " + esc(d.year) + "</p>";
+      if (d.rating) h += "<p style="color:var(--text2)">⭐ " + esc(d.rating) + "</p>";
+      if (d.description) h += "<p style="color:var(--text2);margin-top:8px;font-size:13px;line-height:1.5">"+esc(d.description).substring(0,300)+"</p>";
+      h += "<button onclick="movieboxPlay('"+id+"')" style="margin-top:12px;padding:10px 24px;background:var(--grad);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:15px">▶ Play</button>";
+      h += "</div></div></div>";
+      if (el) el.innerHTML = h;
+    })
+    .catch(function(e){
+      if (el) el.innerHTML = "<div class="empty">⚠️ Error: " + esc(e.message) + "</div>";
+    });
+}
+function movieboxPlay(id){
+  var url = API + "/api/moviebox/stream?id=" + id + "&season=1&episode=1";
+  if (window.__njOpenPlayer) window.__njOpenPlayer(url, "MovieBox Movie", "");
+  else window.open(url, "_blank");
+}
+
 /* ---------- Navigation ---------- */
 function go(page){
   // Close sidebar on mobile
@@ -4137,6 +4249,7 @@ function go(page){
   if (page==='tv')      loadTV();
   if (page==='tg')      loadTG();
   if (page==='movies')  loadMovies('popular');
+    if (page==='moviebox')  movieboxLoadTrending();
   if (page==='books')   loadBooks('hindi');
   if (page==='catalog') loadCatalog();
   if (page==='admin')   loadAdmin();
@@ -5946,4 +6059,63 @@ async function handleFamilyChatReset(env) {
   if (!env.KV_STORE) return json({ ok: false, error: 'KV not configured' });
   await env.KV_STORE.delete('family_chat').catch(() => {});
   return json({ ok: true, message: 'Family chat cache cleared. Next start will generate fresh AI responses.' });
+}
+
+// === MovieBox TUI Backend Proxy ===
+async function handleMovieBoxSearch(url, env) {
+  const q = url.searchParams.get('q');
+  if (!q || q.length < 2) return json({ results: [], error: 'q parameter required (min 2 chars)' }, 400);
+  const api = env.MOVIEBOX_API || '';
+  if (!api) return json({ results: [], error: 'MovieBox backend not configured. Deploy on VPSWala.', fallback: true });
+  try {
+    const res = await fetch(api + '/search?q=' + encodeURIComponent(q), { signal: AbortSignal.timeout(15000) });
+    return new Response(res.body, { status: res.status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=300' } });
+  } catch (e) {
+    return json({ results: [], error: 'MovieBox API unreachable: ' + e.message });
+  }
+}
+
+async function handleMovieBoxStream(request, url, env) {
+  const movieId = url.searchParams.get('id');
+  const season = url.searchParams.get('season') || '1';
+  const episode = url.searchParams.get('episode') || '1';
+  const download = url.searchParams.get('download') === '1';
+  if (!movieId) return json({ error: 'id required' }, 400);
+  const api = env.MOVIEBOX_API || '';
+  if (!api) return json({ error: 'MovieBox backend not configured' }, 500);
+  try {
+    const res = await fetch(api + '/stream/' + encodeURIComponent(movieId) + '?season=' + season + '&episode=' + episode, { signal: AbortSignal.timeout(20000) });
+    const data = await res.json();
+    if (data.stream_url) {
+      return serveStreamFromUpstream(request, data.stream_url, { name: (data.title || movieId) + '.mp4', mime: 'video/mp4', download: download });
+    }
+    return json(data);
+  } catch (e) {
+    return json({ error: 'MovieBox stream error: ' + e.message }, 500);
+  }
+}
+
+async function handleMovieBoxTrending(url, env) {
+  const api = env.MOVIEBOX_API || '';
+  if (!api) return json({ results: [], error: 'MovieBox backend not configured' });
+  try {
+    const res = await fetch(api + '/trending', { signal: AbortSignal.timeout(15000) });
+    return new Response(res.body, { status: res.status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=600' } });
+  } catch (e) {
+    return json({ results: [], error: 'MovieBox trending error: ' + e.message });
+  }
+}
+
+async function handleMovieBoxDetail(url, env) {
+  const path = url.pathname;
+  const movieId = path.split('/api/moviebox/detail/')[1];
+  if (!movieId) return json({ error: 'movie id required' }, 400);
+  const api = env.MOVIEBOX_API || '';
+  if (!api) return json({ error: 'MovieBox backend not configured' });
+  try {
+    const res = await fetch(api + '/detail/' + encodeURIComponent(movieId), { signal: AbortSignal.timeout(15000) });
+    return new Response(res.body, { status: res.status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+  } catch (e) {
+    return json({ error: 'MovieBox detail error: ' + e.message });
+  }
 }
