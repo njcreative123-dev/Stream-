@@ -1714,32 +1714,38 @@ async function handleSearch(url, env) {
 
   const results = { movies: [], books: [], tg: [] };
 
-  // Search movies
-  try {
-    if (env.TMDB_KEY) {
-      const mResp = await fetch(`https://api.themoviedb.org/3/search/movie?api_key=${env.TMDB_KEY}&query=${encodeURIComponent(q)}&language=hi-IN`);
-      const mData = await mResp.json();
-      results.movies = (mData.results || []).slice(0, 5).map(m => ({
-        title: m.title, overview: m.overview, image: m.poster_path ? `https://image.tmdb.org/t/p/w200${m.poster_path}` : '', rating: m.vote_average, year: m.release_date?.substring(0, 4),
+  // Run all searches in PARALLEL with 8s timeout
+  const tm = AbortSignal.timeout(8000);
+
+  const movieP = (async () => {
+    try {
+      // Try OMDB first (free, fast)
+      const oResp = await fetch(`https://www.omdbapi.com/?s=${encodeURIComponent(q)}&type=movie&apikey=trilogy`, { signal: tm });
+      const oData = await oResp.json();
+      if (oData.Search) {
+        results.movies = oData.Search.slice(0, 8).map(m => ({
+          title: m.Title, overview: '', image: m.Poster !== 'N/A' ? m.Poster : '', rating: '', year: m.Year, imdb: m.imdbID,
+        }));
+      }
+    } catch (e) {}
+  })();
+
+  const bookP = (async () => {
+    try {
+      const bResp = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=5`, { signal: tm });
+      const bData = await bResp.json();
+      results.books = (bData.docs || []).slice(0, 5).map(b => ({
+        title: b.title, author: b.author_name?.[0] || 'Unknown', cover: b.cover_i ? `https://covers.openlibrary.org/b/id/${b.cover_i}-M.jpg` : '', read_url: `https://openlibrary.org${b.key}`,
       }));
-    }
-  } catch (e) {}
+    } catch (e) {}
+  })();
 
-  // Search books
-  try {
-    const bResp = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=5`);
-    const bData = await bResp.json();
-    results.books = (bData.docs || []).map(b => ({
-      title: b.title, author: b.author_name?.[0] || 'Unknown', cover: b.cover_i ? `https://covers.openlibrary.org/b/id/${b.cover_i}-M.jpg` : '', read_url: `https://openlibrary.org${b.key}`,
-    }));
-  } catch (e) {}
-
-  // Search Telegram (full library: titles + file names + mirrors)
-  if (env.KV_STORE && env.TG_CHAT_ID) {
+  const tgP = (async () => {
+    if (!env.KV_STORE || !env.TG_CHAT_ID) return;
     try {
       const lq = q.toLowerCase();
       let lib = await env.KV_STORE.get('tglib:' + env.TG_CHAT_ID, { type: 'json' }).catch(() => null);
-      if (!lib || !lib.items) lib = await buildTgLibrary(env, env.TG_CHAT_ID);
+      if (!lib || !lib.items) return;
       const items = (lib.items || []).filter(it =>
         (it.title || '').toLowerCase().includes(lq) ||
         (it.text || '').toLowerCase().includes(lq) ||
@@ -1760,7 +1766,9 @@ async function handleSearch(url, env) {
         download_url: it.mirror ? ('/api/media/' + it.id + '?download=1') : null,
       }));
     } catch (e) {}
-  }
+  })();
+
+  await Promise.all([movieP, bookP, tgP]);
 
   const total = results.movies.length + results.books.length + results.tg.length;
   return json({ ...results, total, query: q });
