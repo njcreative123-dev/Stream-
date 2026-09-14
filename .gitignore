@@ -18,3 +18,10 @@ verify_tv_live.mjs
 __pycache__/
 *.mjs
 *.sh
+mirror_queue.py
+mirror_resume.py
+auto_upload_all.py
+auto_upload.sh
+gh_resumable_upload.py
+test_*.mjs
+proof_*.mjs

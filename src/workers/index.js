@@ -1703,20 +1703,31 @@ async function handleSearch(url, env) {
     }));
   } catch (e) {}
 
-  // Search Telegram
+  // Search Telegram (full library: titles + file names + mirrors)
   if (env.KV_STORE && env.TG_CHAT_ID) {
     try {
-      const index = await env.KV_STORE.get(`index:${env.TG_CHAT_ID}`, { type: 'json' });
-      if (index?.ids) {
-        const lq = q.toLowerCase();
-        for (const id of index.ids.slice(0, 50)) {
-          const msg = await env.KV_STORE.get(`msg:${env.TG_CHAT_ID}:${id}`, { type: 'json' });
-          if (msg && msg.text && msg.text.toLowerCase().includes(lq)) {
-            results.tg.push({ text: msg.text.substring(0, 120), from: msg.from, date: msg.date, hasVideo: !!msg.video, hasPhoto: !!msg.photo });
-          }
-          if (results.tg.length >= 5) break;
-        }
-      }
+      const lq = q.toLowerCase();
+      let lib = await env.KV_STORE.get('tglib:' + env.TG_CHAT_ID, { type: 'json' }).catch(() => null);
+      if (!lib || !lib.items) lib = await buildTgLibrary(env, env.TG_CHAT_ID);
+      const items = (lib.items || []).filter(it =>
+        (it.title || '').toLowerCase().includes(lq) ||
+        (it.text || '').toLowerCase().includes(lq) ||
+        (it.file && it.file.name || '').toLowerCase().includes(lq)
+      ).slice(0, 8);
+      results.tg = items.map(it => ({
+        id: it.id,
+        title: it.title,
+        text: (it.text || '').substring(0, 120),
+        from: it.from,
+        date: it.date,
+        category: it.category,
+        hasVideo: !!it.file,
+        fileSizeLabel: (it.file && it.file.sizeLabel) || '',
+        mirror: it.mirror ? { url: it.mirror.url, sizeLabel: it.mirror.sizeLabel, source: it.mirror.source } : null,
+        tme: it.tme,
+        play_url: it.mirror ? ('/api/media/' + it.id + '?proxy=1') : null,
+        download_url: it.mirror ? ('/api/media/' + it.id + '?download=1') : null,
+      }));
     } catch (e) {}
   }
 
@@ -4801,8 +4812,20 @@ function showTVError(name, err){
 }
 
 /* ---------- TELEGRAM ---------- */
+var mirroredIdx = null;
+async function loadMirrorIndex(){
+  try{
+    var r = await fetch(API+'/api/telegram/library?limit=300', {cache:'no-store'});
+    var d = await r.json();
+    var idx = {};
+    (d.items || []).forEach(function(it){ if (it.mirror && it.mirror.url) idx[it.id] = it.mirror; });
+    mirroredIdx = idx;
+    return idx;
+  }catch(e){ return null; }
+}
 async function loadTG(reset, silent){
   if (tgState.loading) return;
+  loadMirrorIndex();
   if (typeof reset === 'undefined') reset = true;
   tgState.loading = true;
   if (reset && !silent){
@@ -4901,6 +4924,7 @@ function renderTGMessages(msgs){
       var posterIdx = (m.id % posterGrad.length);
       if (vsize > TG_LIMIT){
         // Large video — real thumbnail card + NJStream direct play + Telegram Cloud fallback
+        var mir = (typeof mirroredIdx === 'object' && mirroredIdx) ? mirroredIdx[m.id] : null;
         var tgDeep = 'tg://resolve?domain=hindidubbedfilmmovie&post=' + m.id;
         var cardThumb = API + '/api/telegram/thumb?msg_id=' + encodeURIComponent(m.id);
         h += '<div class="tg-msg-media">';
@@ -4915,7 +4939,8 @@ function renderTGMessages(msgs){
         h += '<div class="movie-card-icon">'+String.fromCodePoint(0x1F3AC)+'</div>';
         h += '<h3 class="movie-card-title">'+esc(videoTitle)+'</h3>';
         h += '<div class="movie-card-meta"><span>'+yearLabel+'</span><span>'+String.fromCodePoint(0x1F525)+' HD</span><span>'+String.fromCodePoint(0x1F4BF)+' '+esc(m.video.mime || 'video/mp4')+'</span></div>';
-        h += '<p class="movie-card-note">'+String.fromCodePoint(0x26A1)+' Full movie — direct play + download ready ✅ (20MB limit bypass: GitHub mirror + Range streaming)</p>';
+        var noteTxt = mir ? (String.fromCodePoint(0x26A1)+' Full movie — direct play + download ready ✅ (GitHub mirror + Range streaming)') : (String.fromCodePoint(0x1F527)+' Site mirror abhi pending — Play button mirror ready hote hi chalega. Neeche Mirror Request bhejo ya Telegram me kholo.');
+        h += '<p class="movie-card-note">'+noteTxt+'</p>';
         h += '<div class="movie-card-actions">';
         h += '<button class="vbn-btn primary" data-direct-play="'+encodeURIComponent(m.id)+'" data-libt="'+esc(videoTitle)+'">'+String.fromCodePoint(0x25B6,0xFE0F)+' Play on NJStream</button>';
         h += '<button class="vbn-btn nj-lib-dl" data-libdl="'+encodeURIComponent(m.id)+'">'+String.fromCodePoint(0x2B07)+' Download Full Movie</button>';
@@ -5443,7 +5468,18 @@ async function doSearch(){
     var h = ''; var total = 0;
     (d.movies||[]).forEach(function(m){ total++; h+='<div class="sr-card">'+(m.image?'<img class="sr-img" src="'+esc(m.image)+'" alt="">':'')+'<div class="sr-info"><h3>'+esc(m.title)+'</h3><div class="sr-meta"><span class="sr-tag movie">'+String.fromCodePoint(0x1F3AC)+' Movie</span>'+(m.rating?'<span>⭐ '+m.rating+'</span>':'')+(m.year?'<span>'+m.year+'</span>':'')+'</div>'+(m.overview?'<p style="font-size:12px;color:var(--text2)">'+esc(m.overview.substring(0,100))+'...</p>':'')+'</div></div>'; });
     (d.books||[]).forEach(function(b){ total++; h+='<div class="sr-card">'+(b.cover?'<img class="sr-img" src="'+esc(b.cover)+'" alt="">':'')+'<div class="sr-info"><h3>'+esc(b.title)+'</h3><div class="sr-meta"><span class="sr-tag book">'+String.fromCodePoint(0x1F4DA)+' Book</span><span>'+esc(b.author||'')+'</span></div>'+(b.key?'<button class="book-link" data-read="'+esc(b.key)+'" data-title="'+esc(b.title)+'"'+(b.ia?' data-ia="'+esc(b.ia)+'"':'')+'>'+String.fromCodePoint(0x1F4D6)+' Read Here</button>':'')+'</div></div>'; });
-    (d.tg||[]).forEach(function(t){ total++; h+='<div class="sr-card"><div class="sr-info"><h3>'+esc(t.text||'')+'</h3><div class="sr-meta"><span class="sr-tag tg">'+String.fromCodePoint(0x1F4F1)+' Telegram</span><span>'+esc(t.from||'')+'</span>'+(t.hasVideo?'<span>🎥 Video</span>':'')+'</div></div></div>'; });
+    (d.tg||[]).forEach(function(t){ total++;
+      h += '<div class="sr-card"><div class="sr-info"><h3>'+esc(t.title || t.text || '')+'</h3>';
+      h += '<div class="sr-meta"><span class="sr-tag tg">'+String.fromCodePoint(0x1F4F1)+' Telegram</span><span>'+esc(t.category || '')+'</span>'+(t.hasVideo?'<span>'+String.fromCodePoint(0x1F3AC)+' '+esc(t.fileSizeLabel||'Video')+'</span>':'')+'</div>';
+      if (t.mirror && t.play_url) {
+        h += '<div class="sr-actions" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">';
+        h += '<button class="vbn-btn primary" data-direct-play="'+encodeURIComponent(t.id)+'" data-libt="'+esc(t.title)+'">'+String.fromCodePoint(0x25B6,0xFE0F)+' Play on NJStream</button>';
+        if (t.download_url) h += '<a class="vbn-btn" href="'+esc(t.download_url)+'" download>'+String.fromCodePoint(0x2B07)+' Download</a>';
+        h += '</div>';
+      }
+      if (t.tme) h += '<a href="'+esc(t.tme)+'" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;font-size:11.5px;color:var(--text2)">'+String.fromCodePoint(0x1F517)+' Telegram</a>';
+      h += '</div></div>';
+    });
     if (!total) h = '<div class="empty"><span>'+String.fromCodePoint(0x1F50D)+'</span>Kuchh nahi mila</div>';
     el.innerHTML = h;
   }catch(e){ el.innerHTML = '<div class="empty"><span>⚠️</span>Search fail</div>'; }
