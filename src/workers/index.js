@@ -4138,29 +4138,29 @@ function syncThemeIcon(){
 function movieboxLoadTrending(){
   var el = $("mbTrending");
   if (!el) return;
-  el.innerHTML = "<div class="loading">🎯 Loading trending…</div>";
+  el.innerHTML = '<div class="loading">Loading trending...</div>';
   fetch(API + "/api/moviebox/trending")
     .then(function(r){ return r.json(); })
     .then(function(d){
       if (!d.results || !d.results.length){
-        el.innerHTML = "<div class="empty small">Trending VPSWala deploy ke baad dikhega</div>";
+        el.innerHTML = '<div class="empty small">Trending VPSWala deploy ke baad dikhega</div>';
         return;
       }
-      var h = "<h3 style="padding:12px 0 8px;color:var(--text2);font-size:14px">🔥 Trending on MovieBox</h3>";
+      var h = '<h3 style="padding:12px 0 8px;color:var(--text2);font-size:14px">🔥 Trending on MovieBox</h3>';
       d.results.forEach(function(m){
-        h += "<div class="movie-card" onclick="movieboxDetail('" + m.id + "')">";
-        if (m.poster) h += "<img src="" + m.poster + "" class="movie-poster" alt="" + (m.title||"") + "" loading="lazy">";
-        else h += "<div class="movie-poster" style="background:#1a1a2e;display:flex;align-items:center;justify-content:center;font-size:48px">🎬</div>";
-        h += "<div class="movie-info"><h4>" + esc(m.title) + "</h4>";
-        h += "<div class="movie-meta">";
-        if (m.year) h += "<span>" + esc(m.year) + "</span>";
-        if (m.rating) h += "<span>⭐ " + esc(m.rating) + "</span>";
-        h += "</div></div></div>";
+        h += '<div class="movie-card" onclick="movieboxDetail(\'' + m.id + '\')">';
+        if (m.poster) h += '<img src="' + m.poster + '" class="movie-poster" alt="' + (m.title||'') + '" loading="lazy">';
+        else h += '<div class="movie-poster" style="background:#1a1a2e;display:flex;align-items:center;justify-content:center;font-size:48px">🎬</div>';
+        h += '<div class="movie-info"><h4>' + esc(m.title) + '</h4>';
+        h += '<div class="movie-meta">';
+        if (m.year) h += '<span>' + esc(m.year) + '</span>';
+        if (m.rating) h += '<span>⭐ ' + esc(m.rating) + '</span>';
+        h += '</div></div></div>';
       });
       el.innerHTML = h;
     })
     .catch(function(e){
-      el.innerHTML = "<div class="empty small">⚠️ MovieBox backend offline</div>";
+      el.innerHTML = '<div class="empty small">⚠️ MovieBox backend offline</div>';
     });
 }
 
@@ -4170,56 +4170,56 @@ function movieboxSearch(){
   var q = ($("mbSearch") || {}).value || "";
   if (q.length < 2) return;
   var el = $("mbResults");
-  if (el) el.innerHTML = "<div class="loading">🔍 Searching MovieBox…</div>";
+  if (el) el.innerHTML = '<div class="loading">🔍 Searching MovieBox...</div>';
   fetch(API + "/api/moviebox/search?q=" + encodeURIComponent(q))
     .then(function(r){ return r.json(); })
     .then(function(d){
       if (!d.results || !d.results.length){
-        if (el) el.innerHTML = "<div class="empty">No results found. Backend deploy karo VPSWala pe.</div>";
+        if (el) el.innerHTML = '<div class="empty">No results found. Backend deploy karo VPSWala pe.</div>';
         return;
       }
-      var h = "";
+      var h = '';
       d.results.forEach(function(m){
-        h += "<div class="movie-card" onclick="movieboxDetail('" + m.id + "')">";
-        if (m.poster) h += "<img src="" + m.poster + "" class="movie-poster" alt="" + (m.title||"") + "" loading="lazy">";
-        else h += "<div class="movie-poster" style="background:#1a1a2e;display:flex;align-items:center;justify-content:center;font-size:48px">🎬</div>";
-        h += "<div class="movie-info"><h4>" + esc(m.title) + "</h4>";
-        h += "<div class="movie-meta">";
-        if (m.year) h += "<span>" + esc(m.year) + "</span>";
-        if (m.rating) h += "<span>⭐ " + esc(m.rating) + "</span>";
-        h += "<span class="badge-t moviebox">🎯 MovieBox</span>";
-        h += "</div></div></div>";
+        h += '<div class="movie-card" onclick="movieboxDetail(\'' + m.id + '\')">';
+        if (m.poster) h += '<img src="' + m.poster + '" class="movie-poster" alt="' + (m.title||'') + '" loading="lazy">';
+        else h += '<div class="movie-poster" style="background:#1a1a2e;display:flex;align-items:center;justify-content:center;font-size:48px">🎬</div>';
+        h += '<div class="movie-info"><h4>' + esc(m.title) + '</h4>';
+        h += '<div class="movie-meta">';
+        if (m.year) h += '<span>' + esc(m.year) + '</span>';
+        if (m.rating) h += '<span>⭐ ' + esc(m.rating) + '</span>';
+        h += '<span class="badge-t moviebox">🎯 MovieBox</span>';
+        h += '</div></div></div>';
       });
       if (el) el.innerHTML = h;
     })
     .catch(function(e){
-      if (el) el.innerHTML = "<div class="empty">⚠️ MovieBox backend offline. VPSWala pe deploy karo.</div>";
+      if (el) el.innerHTML = '<div class="empty">⚠️ MovieBox backend offline. VPSWala pe deploy karo.</div>';
     });
 }
 function movieboxDetail(id){
   var el = $("mbResults");
-  if (el) el.innerHTML = "<div class="loading">⏳ Loading details…</div>";
+  if (el) el.innerHTML = '<div class="loading">⏳ Loading details...</div>';
   fetch(API + "/api/moviebox/detail/" + id)
     .then(function(r){ return r.json(); })
     .then(function(d){
       if (d.error){
-        if (el) el.innerHTML = "<div class="empty">⚠️ " + esc(d.error) + "</div>";
+        if (el) el.innerHTML = '<div class="empty">⚠️ ' + esc(d.error) + '</div>';
         return;
       }
-      var h = "<div style="padding:16px">";
-      h += "<button onclick="movieboxSearch()" style="background:none;border:none;color:var(--accent);font-size:14px;cursor:pointer;margin-bottom:12px">← Back to search</button>";
-      h += "<div style="display:flex;gap:16px;flex-wrap:wrap">";
-      if (d.poster) h += "<img src="" + d.poster + "" style="width:150px;border-radius:12px">";
-      h += "<div><h2 style="margin:0 0 8px">" + esc(d.title) + "</h2>";
-      if (d.year) h += "<p style="color:var(--text2)">📅 " + esc(d.year) + "</p>";
-      if (d.rating) h += "<p style="color:var(--text2)">⭐ " + esc(d.rating) + "</p>";
-      if (d.description) h += "<p style="color:var(--text2);margin-top:8px;font-size:13px;line-height:1.5">"+esc(d.description).substring(0,300)+"</p>";
-      h += "<button onclick="movieboxPlay('"+id+"')" style="margin-top:12px;padding:10px 24px;background:var(--grad);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:15px">▶ Play</button>";
-      h += "</div></div></div>";
+      var h = '<div style="padding:16px">';
+      h += '<button onclick="movieboxSearch()" style="background:none;border:none;color:var(--accent);font-size:14px;cursor:pointer;margin-bottom:12px">← Back to search</button>';
+      h += '<div style="display:flex;gap:16px;flex-wrap:wrap">';
+      if (d.poster) h += '<img src="' + d.poster + '" style="width:150px;border-radius:12px">';
+      h += '<div><h2 style="margin:0 0 8px">' + esc(d.title) + '</h2>';
+      if (d.year) h += '<p style="color:var(--text2)">📅 ' + esc(d.year) + '</p>';
+      if (d.rating) h += '<p style="color:var(--text2)">⭐ ' + esc(d.rating) + '</p>';
+      if (d.description) h += '<p style="color:var(--text2);margin-top:8px;font-size:13px;line-height:1.5">'+esc(d.description).substring(0,300)+'</p>';
+      h += '<button onclick="movieboxPlay(\''+id+'\')" style="margin-top:12px;padding:10px 24px;background:var(--grad);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:15px">▶ Play</button>';
+      h += '</div></div></div>';
       if (el) el.innerHTML = h;
     })
     .catch(function(e){
-      if (el) el.innerHTML = "<div class="empty">⚠️ Error: " + esc(e.message) + "</div>";
+      if (el) el.innerHTML = '<div class="empty">⚠️ Error: ' + esc(e.message) + '</div>';
     });
 }
 function movieboxPlay(id){
