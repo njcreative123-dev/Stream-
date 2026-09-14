@@ -3598,6 +3598,23 @@ function initNavigation(){
   if(ov) ov.addEventListener('click', closeSide);
 }
 
+// Load trending carousel
+function loadTrending(){
+  var el = $('homeCarousel');
+  if(!el) return;
+  fetch(API+'/api/movies?type=popular').then(function(r){return r.json()}).then(function(d){
+    var movies = (d.results||[]).slice(0,10);
+    if(!movies.length) return;
+    el.innerHTML = movies.map(function(m){
+      return '<div class="movie-card" style="width:180px" onclick="openMovieDetail(\''+esc(m.title||'')+'\',\''+esc(m.image||'')+'\',\''+esc(m.overview||'')+'\',\''+(m.year||'')+'\',\''+(m.rating||'')+'\')">'
+        +(m.image?'<img src="'+m.image+'" class="movie-poster" loading="lazy" onerror="this.outerHTML=\'<div class=poster-placeholder>🎬</div>\'>':'<div class="poster-placeholder">🎬</div>')
+        +'<div class="movie-play">▶</div>'
+        +'<div class="movie-info"><div class="movie-title">'+esc(m.title||'')+'</div>'
+        +'<div class="movie-meta">'+(m.rating?'<span class="rating">⭐ '+m.rating+'</span>':'')+(m.year?'<span>'+m.year+'</span>':'')+'</div></div></div>';
+    }).join('');
+  }).catch(function(){});
+}
+
 window.navTo = function(page){
   state.page = page;
   document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active') });
@@ -3633,6 +3650,9 @@ function loadPageData(p){
 
 function toggleSide(){$('side')?.classList.toggle('open');$('sideOverlay')?.classList.toggle('show')}
 function closeSide(){$('side')?.classList.remove('open');$('sideOverlay')?.classList.remove('show')}
+document.addEventListener('keydown', function(e){
+  if(e.key==='Escape'){ closeSide(); closeVideo(); }
+});
 
 // ============================================================
 // HOME
@@ -3643,6 +3663,8 @@ function loadHomePage(){
   loadHomeTG();
   loadHomeBooks();
   loadHomeAgents();
+  loadTrending();
+  loadContinueWatching();
 }
 
 function loadHomeChannels(){
@@ -3724,8 +3746,58 @@ window.searchMovies = function(){
   }).catch(function(){el.innerHTML=errorMsg('Search failed');});
 };
 
+// Movie detail modal
+window.openMovieDetail = function(title, img, overview, year, rating){
+  saveWatch(title, img);
+  var ov = document.getElementById('vidOverlay');
+  if(!ov) return;
+  ov.innerHTML = '<div class="vid-box" style="max-width:700px">'
+    +'<button class="vid-close" onclick="closeVideo()" aria-label="Close">✕</button>'
+    +'<div style="display:flex;gap:24px;padding:28px;align-items:flex-start;flex-wrap:wrap">'
+    +'<img src="'+img+'" style="width:180px;border-radius:12px;object-fit:cover" onerror="this.style.display=\'none\'">'
+    +'<div style="flex:1;min-width:200px">'
+    +'<h2 style="font-size:22px;font-weight:900;margin-bottom:8px">'+esc(title)+'</h2>'
+    +'<div class="movie-meta" style="margin-bottom:14px">'+(rating?'<span class="rating">⭐ '+esc(rating)+'</span>':'')+(year?'<span>'+esc(year)+'</span>':'')+'</div>'
+    +'<p style="color:var(--text2);font-size:13.5px;line-height:1.7">'+esc(overview||'No description available.')+'</p>'
+    +'<div style="margin-top:18px;display:flex;gap:8px;flex-wrap:wrap">'
+    +'<button class="btn btn-primary btn-sm" onclick="closeVideo()">Close</button>'
+    +'</div></div></div></div>';
+  ov.classList.add('show');
+  document.body.style.overflow='hidden';
+};
+
+// Save to continue watching (localStorage)
+function saveWatch(title, img){
+  try{
+    var list = JSON.parse(localStorage.getItem('nj_watch')||'[]');
+    list = list.filter(function(w){ return w.title !== title; });
+    list.unshift({title:title, image:img, time:Date.now()});
+    list = list.slice(0,12);
+    localStorage.setItem('nj_watch', JSON.stringify(list));
+  }catch(e){}
+}
+
+// Populate continue watching section on home page
+function loadContinueWatching(){
+  var sec = document.getElementById('homeContinueSection');
+  var gc = document.getElementById('homeContinue');
+  if(!sec || !gc) return;
+  try{
+    var list = JSON.parse(localStorage.getItem('nj_watch')||'[]');
+    if(!list.length){ sec.style.display='none'; return; }
+    sec.style.display='block';
+    gc.innerHTML = list.map(function(w){
+      return '<div class="movie-card" onclick="openMovieDetail(\''+esc(w.title||'')+'\',\''+esc(w.image||'')+'\',\'\',\'\',\'\')" title="'+esc(w.title)+'">'
+        +(w.image?'<img src="'+w.image+'" class="movie-poster" loading="lazy" onerror="this.outerHTML=\'<div class=poster-placeholder>🎬</div>\'">':'<div class="poster-placeholder">🎬</div>')
+        +'<div class="movie-play">▶</div>'
+        +'<div class="movie-info"><div class="movie-title">'+esc(w.title)+'</div>'
+        +'<div class="movie-meta" style="color:var(--accent);font-size:10.5px">Continue</div></div></div>';
+    }).join('');
+  }catch(e){}
+}
+
 function movieCard(m){
-  return '<div class="movie-card" title="'+esc(m.title||'')+'">'
+  return '<div class="movie-card" onclick="openMovieDetail(\''+esc(m.title||'')+'\',\''+esc(m.image||'')+'\',\''+esc(m.overview||'')+'\',\''+(m.year||'')+'\',\''+(m.rating||'')+'\')" title="'+esc(m.title||'')+'">'
     +(m.image?'<img src="'+m.image+'" class="movie-poster" loading="lazy" onerror="this.outerHTML=\'<div class=poster-placeholder>🎬</div>\'">':'<div class="poster-placeholder">🎬</div>')
     +'<div class="movie-play">▶</div>'
     +'<div class="movie-info"><div class="movie-title">'+esc(m.title||'')+'</div>'
@@ -4200,7 +4272,8 @@ window.searchMovieBox = function(){
 // ============================================================
 window.closeVideo = function(){
   var v=$('vmVideo');if(v){v.pause();v.src='';}
-  var o=$('vidOverlay');if(o)o.classList.remove('show');
+  var o=$('vidOverlay');if(o){o.classList.remove('show');o.innerHTML='';}
+  document.body.style.overflow='';
 };
 
 // ============================================================
