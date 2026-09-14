@@ -18,12 +18,40 @@ const fs = require('fs');
 const path = require('path');
 
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
+const BOT_TOKENS = (process.env.BOT_TOKENS || BOT_TOKEN).split(',').map(s => s.trim()).filter(Boolean);
 const WORKER_URL = (process.env.WORKER_URL || '').replace(/\/+$/, '');
 const INGEST_KEY = process.env.INGEST_KEY || '';
 const CHAT_IDS = (process.env.CHAT_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
 const LOCAL_BOT_API_URL = (process.env.LOCAL_BOT_API_URL || '').replace(/\/+$/, '');
+const PRIMARY_API_URL = (process.env.PRIMARY_API_URL || LOCAL_BOT_API_URL || '').replace(/\/+$/, '');
+const BACKUP_API_URL = (process.env.BACKUP_API_URL || '').replace(/\/+$/, '');
 const STATE_FILE = path.join(__dirname, 'bot-state.json');
-const API = BOT_TOKEN ? `https://api.telegram.org/bot${BOT_TOKEN}` : '';
+let tokenIdx = 0;
+const tokenCooldown = {};
+function apiBaseFor(i) {
+  const t = BOT_TOKENS[i % BOT_TOKENS.length] || BOT_TOKEN;
+  return t ? `https://api.telegram.org/bot${t}` : '';
+}
+const API = apiBaseFor(0);
+let apiHealth = { primary: null, backup: null };
+async function checkApiHealth() {
+  if (PRIMARY_API_URL) {
+    try {
+      const r = await fetch(`${PRIMARY_API_URL}/bot${BOT_TOKEN}/getMe`, { signal: AbortSignal.timeout(3000) });
+      apiHealth.primary = r.ok ? 'UP' : 'DOWN(' + r.status + ')';
+    } catch (e) { apiHealth.primary = 'DOWN'; }
+  }
+  if (BACKUP_API_URL) {
+    try {
+      const r = await fetch(`${BACKUP_API_URL}/bot${BOT_TOKEN}/getMe`, { signal: AbortSignal.timeout(3000) });
+      apiHealth.backup = r.ok ? 'UP' : 'DOWN(' + r.status + ')';
+    } catch (e) { apiHealth.backup = 'DOWN'; }
+  }
+}
+function pickApi() {
+  if (apiHealth.primary === 'DOWN' && BACKUP_API_URL && apiHealth.backup !== 'DOWN') return BACKUP_API_URL;
+  return PRIMARY_API_URL || LOCAL_BOT_API_URL || '';
+}
 
 let state = { offset: 0, index: {}, indexedTotal: 0 };
 try { state = Object.assign(state, JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))); } catch (e) {}
@@ -37,15 +65,27 @@ function escapeMarkdown(s) {
 }
 
 async function tg(method, payload) {
-  if (!API) throw new Error('BOT_TOKEN missing');
-  const r = await fetch(`${API}/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload || {}),
-  });
-  const d = await r.json().catch(() => ({}));
-  if (!d.ok) throw new Error(JSON.stringify(d));
-  return d.result;
+  if (!BOT_TOKENS.length) throw new Error('BOT_TOKEN missing');
+  const now = Date.now();
+  for (let attempt = 0; attempt < BOT_TOKENS.length; attempt++) {
+    const i = tokenIdx % BOT_TOKENS.length;
+    if (tokenCooldown[i] && tokenCooldown[i] > now) { tokenIdx++; continue; }
+    const base = apiBaseFor(i);
+    const r = await fetch(`${base}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (d.ok) { tokenIdx = (i + 1) % BOT_TOKENS.length; return d.result; }
+    if (d.error_code === 429 || (d.parameters && d.parameters.retry_after)) {
+      tokenCooldown[i] = now + ((d.parameters && d.parameters.retry_after) || 30) * 1000;
+      tokenIdx++;
+      continue;
+    }
+    throw new Error(JSON.stringify(d));
+  }
+  throw new Error('all tokens rate-limited (429)');
 }
 
 async function sendMessage(chatId, text, opts) {
@@ -139,11 +179,12 @@ function searchIndex(q) {
 
 function mediaLink(entry) {
   const base = WORKER_URL || 'https://njsoft-stream.njcreative123.workers.dev';
-  if (LOCAL_BOT_API_URL) {
+  const api = pickApi();
+  if (api) {
     // Local Bot API: direct file path serving (unlimited size)
     return {
-      play: `${base}/api/livebot/stream?file_id=${encodeURIComponent(entry.file_id || '')}`,
-      download: `${base}/api/livebot/stream?file_id=${encodeURIComponent(entry.file_id || '')}&download=1`,
+      play: `${base}/api/livebot/stream?file_id=${encodeURIComponent(entry.file_id || '')}&api=${encodeURIComponent(api)}`,
+      download: `${base}/api/livebot/stream?file_id=${encodeURIComponent(entry.file_id || '')}&download=1&api=${encodeURIComponent(api)}`,
     };
   }
   return {
@@ -209,6 +250,33 @@ async function cmdDownload(chatId, arg) {
   if (!entry) { await sendMessage(chatId, `Media nahi mila. /list se file_id lo ya /search karo.`); return; }
   const links = mediaLink(entry);
   await sendMessage(chatId, `⬇️ *Download ready*\n📦 ${escapeMarkdown(entry.file_name || 'file')} (${fmtSize(entry.file_size)})\n\n[Direct Download](${links.download})`, { parse_mode: 'Markdown', disable_web_page_preview: true });
+}
+
+async function cmdMirror(chatId, arg) {
+  await sendChatAction(chatId, 'typing');
+  const url = String(arg || '').trim();
+  if (!/^https?:\/\//i.test(url)) {
+    await sendMessage(chatId, `Aapko ek direct URL do: \`/mirror https://.../movie.mp4\``, { parse_mode: 'Markdown' });
+    return;
+  }
+  if (!INGEST_KEY) { await sendMessage(chatId, 'INGEST_KEY set nahi hai — Worker register nahi ho sakta.'); return; }
+  try {
+    const id = String(url.split('/').pop().split('?')[0].replace(/\.[a-z0-9]+$/i, '') || Math.floor(Date.now() / 1000)).slice(0, 40);
+    const r = await fetch(`${WORKER_URL}/api/media/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-ingest-key': INGEST_KEY },
+      body: JSON.stringify({ id, url, name: url.split('/').pop().split('?')[0], mime: 'video/mp4', size: 0, source: 'direct' }),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'register failed');
+    await sendMessage(chatId,
+      `✅ Mirror register ho gaya! (id: \`${escapeMarkdown(id)}\`)\n\n` +
+      `▶️ [Play](${WORKER_URL}/api/media/${id}?proxy=1)\n` +
+      `⬇️ [Download](${WORKER_URL}/api/media/${id}?download=1)`,
+      { parse_mode: 'Markdown', disable_web_page_preview: true });
+  } catch (e) {
+    await sendMessage(chatId, '❌ Mirror register error: ' + escapeMarkdown(e.message));
+  }
 }
 
 async function cmdList(chatId, arg) {
@@ -316,6 +384,7 @@ async function handleUpdate(u) {
     else if (cmdName === '/play') await cmdPlay(chatId, arg);
     else if (cmdName === '/download') await cmdDownload(chatId, arg);
     else if (cmdName === '/list' || cmdName === '/library') await cmdList(chatId, arg);
+    else if (cmdName === '/mirror') await cmdMirror(chatId, arg);
     else if (cmdName === '/status' || cmdName === '/health') await cmdStatus(chatId);
     else if (cmdName === '/index' || cmdName === '/sync') await cmdIndex(chatId);
   } catch (e) {
@@ -347,5 +416,7 @@ async function pollOnce() {
   console.log(`🖥 Local Bot API: ${LOCAL_BOT_API_URL || 'not set'}`);
   console.log(`🗄 Existing index: ${state.indexedTotal} entries`);
   setInterval(pollOnce, 3000);
+  setInterval(checkApiHealth, 30000);
+  checkApiHealth();
   await pollOnce();
 })();

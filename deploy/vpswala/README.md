@@ -1,21 +1,33 @@
-# VPSWala — Backup Telegram Bot API
+# VPSWala — Backup Bot API + Redis Chunk Cache
 
-Port 8083 (mapped to container 8081). Same steps as rawqh README.
-Primary + Backup both connect to same Cloudflare Worker.
-Worker uses `LOCAL_BOT_API_URL` (rawqh primary — VPSWala used only if rawqh goes down).
+## Free VPS register
+- https://vpswala.org/cart/register.php (traditional form)
+- Plan: free (up to 8GB RAM)
 
-## Quick Start
+## 1) Backup Telegram Bot API (port 8091/8092)
 ```bash
-ssh root@<VPSWala_IP>
-apt update && apt install -y docker.io && systemctl enable --now docker
+ssh root@<VPSWALA_IP>
+curl -fsSL https://get.docker.com | sh
 mkdir -p /opt/njstream && cd /opt/njstream
-# copy docker-compose.yml here
+# docker-compose.yml copy karo (port 8091/8092 override):
+#   sed 's/8081/8091/g; s/8082/8092/g' ...
 docker compose up -d
-curl -s "http://localhost:8083/getMe?token=YOUR_TOKEN"
 ```
 
-## Switch to backup in Worker
+## 2) Redis chunk cache (port 6379)
 ```bash
-wrangler secret put LOCAL_BOT_API_URL
-# Enter: http://<VPSWala_IP>:8083
+docker run -d --name chunk-cache -p 6379:6379 --restart unless-stopped redis:7-alpine
+redis-cli ping   # PONG
+# Cache policy: (file_id, chunk_offset) → bytes, TTL 1hr (worker/bot decide karte hain)
+```
+
+## Failover
+- MonkeyBytes bot har 30s pe primary (rawqh) + backup (VPSWala) ka /getMe ping karta hai
+- rawqh 3 baar fail → bot BACKUP_API_URL pe switch (pickApi)
+- Worker side: PRIMARY_API_URL / BACKUP_API_URL env me dono daalo
+
+## Worker env
+```bash
+wrangler secret put BACKUP_API_URL   # http://<VPSWALA_PUBLIC_IP>:8091
+wrangler secret put REDIS_URL        # optional: redis://<VPSWALA_IP>:6379
 ```

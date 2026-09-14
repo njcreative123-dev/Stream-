@@ -1,40 +1,32 @@
-# MonkeyBytes — NJStream Telegram Bot (Logic Host)
+# MonkeyBytes — NJStream Bot (Brain)
 
-This machine runs the indexing bot (bot.js), NOT the Telegram Bot API server.
-Bot connects to rawqh's API server + Cloudflare Worker for index storage.
-
-## Setup
-```bash
-# SSH in
-mkdir -p /opt/njstream-bot
-cd /opt/njstream-bot
-
-# Copy files
-scp root@<thisMachine>:/path/to/{bot.js,.env.example,njstream-bot.service} .
-
-# Configure
-cp .env.example .env
-nano .env  # edit BOT_TOKEN, WORKER_URL, INGEST_KEY, CHAT_IDS, LOCAL_BOT_API_URL
-```
+- 2GB RAM / 2GB SSD — bot commands + indexing + AI routing
+- Runtime: Node.js 20+ (zero-dependency bot — native fetch, no npm install)
+- Code: `scripts/bot/bot.js`
 
 ## Deploy
-```bash
-sudo cp njstream-bot.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now njstream-bot
-sudo journalctl -u njstream-bot -f
-```
+1. File manager / SFTP se `scripts/bot/` upload karo
+2. `.env` banao (`.env.example` copy karo):
+   - `BOT_TOKEN` (primary), `BOT_TOKENS` (multi-token rotation, optional)
+   - `WORKER_URL=https://njsoft-stream.njcreative123.workers.dev`
+   - `PRIMARY_API_URL=http://<RAWQH_IP>:8081`
+   - `BACKUP_API_URL=http://<VPSWALA_IP>:8091`
+3. Entry file: `bot.js` → `node bot.js`
+4. Uptime: platform Kron (cron ping) ya panel auto-restart
 
 ## Verify
 ```bash
-# Bot should print: ✅ Bot live: @<username>
-# Status: /status command in Telegram
-curl https://njsoft-stream.njcreative123.workers.dev/api/status | head
+# Telegram par bot ko private message karo:
+/start        → 5 sec ke andar welcome aaye
+/search <q>   → indexed media results
+/play <id>    → streaming link
+/download <id> → direct download link
+/mirror <url> → naya direct URL mirror register
+/status       → bot + rawqh + VPSWala health
 ```
 
-## How 20MB limit is removed
-1. rawqh runs Telegram Bot API server with `--local`
-2. `getFile` returns local file path (unlimited size)
-3. Bot indexes media → stores in Cloudflare Worker KV/D1
-4. Worker's `/api/livebot/stream` fetches local path + streams with Range support
-5. Website plays + downloads up to 2GB
+## Speed mechanism (implemented in bot.js)
+- Multi-token round-robin (429 pe token cooldown)
+- Primary/backup API failover har 30s health check
+- Worker edge cache: pehle 1MB chunk popular videos ka (cache TTL 300s)
+- Chunk streaming: Worker Range passthrough (seek), zero full-file buffering

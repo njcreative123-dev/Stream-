@@ -607,6 +607,18 @@ async function serveStreamFromUpstream(request, upstreamUrl, opts) {
   if (range) headers['Range'] = range;
   else if (!download) headers['Range'] = 'bytes=0-1048575';
   let upstream;
+  const isFirstRange = !range && !download;
+  const cacheKey = isFirstRange ? ('https://njsoft-stream.njcreative123.workers.dev/__edgecache/' + btoa(upstreamUrl)) : null;
+  if (isFirstRange && typeof caches !== 'undefined') {
+    try {
+      const hit = await caches.default.match(cacheKey);
+      if (hit) {
+        const h2 = new Headers(hit.headers);
+        h2.set('X-NJStream-Cache', 'HIT');
+        return new Response(hit.body, { status: 206, headers: h2 });
+      }
+    } catch (e) {}
+  }
   try {
     upstream = await fetch(upstreamUrl, { headers, redirect: 'follow' });
   } catch (e) {
@@ -647,6 +659,7 @@ async function serveStreamFromUpstream(request, upstreamUrl, opts) {
     return h;
   }
   const streamStatus = upstream.status === 206 ? 206 : 200;
+  let resp;
   if (!firstDone && firstChunk) {
     const respHeaders = buildRespHeaders(detectedMime, streamStatus);
     const rest = new ReadableStream({
@@ -659,9 +672,20 @@ async function serveStreamFromUpstream(request, upstreamUrl, opts) {
         } catch(e) { controller.error(e); }
       }
     });
-    return new Response(rest, { status: streamStatus, headers: respHeaders });
+    resp = new Response(rest, { status: streamStatus, headers: respHeaders });
+  } else {
+    resp = new Response(firstDone ? null : firstChunk, { status: streamStatus, headers: buildRespHeaders(detectedMime, streamStatus) });
   }
-  return new Response(firstDone ? null : firstChunk, { status: streamStatus, headers: buildRespHeaders(detectedMime, streamStatus) });
+  if (isFirstRange && typeof caches !== 'undefined' && resp.status === 206) {
+    try {
+      const cr = resp.clone();
+      const h3 = new Headers(cr.headers);
+      h3.set('Cache-Control', 'public, max-age=300');
+      h3.delete('Set-Cookie');
+      await caches.default.put(cacheKey, new Response(cr.body, { status: 206, headers: h3 }));
+    } catch (e) {}
+  }
+  return resp;
 }
 
 // Media resolver: R2 → registered external mirror (GitHub/CDN) → KV remuxed samples.
