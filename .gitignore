@@ -25,3 +25,4 @@ auto_upload.sh
 gh_resumable_upload.py
 test_*.mjs
 proof_*.mjs
+scripts/bot/.env
