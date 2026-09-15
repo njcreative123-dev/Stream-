@@ -88,12 +88,5 @@ jobs:
         run: |
           curl -s "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=✅ *JDUB Hub Deployed!*
-
-🌐 HelioHost: https://njcreative123.helioho.st/
-⚡ Cloudflare Pages: https://jdub-hub.pages.dev/
-☁️ Worker: https://jdub-deploy.njcreative123.workers.dev/
-📦 GitHub Pages: https://njcreative123-dev.github.io/Stream-/
-
-All free services online 🚀" \
+            -d "text=✅+JDUB+Hub+Deployed!+HelioHost:+https://njcreative123.helioho.st/+Worker:+https://njsoft-stream.njcreative123.workers.dev/+All+services+online+🚀" \
             -d "parse_mode=Markdown"
