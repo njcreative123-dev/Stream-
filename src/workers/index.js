@@ -2059,7 +2059,7 @@ async function handleSearch(url, env) {
   const wantTg = intent.type === 'all' || intent.type === 'telegram' || intent.type === 'movie' || intent.type === 'series' || intent.type === 'book';
   const wantChannel = intent.type === 'all' || intent.type === 'tv' || intent.channel;
   const wantSoftware = intent.type === 'all' || intent.type === 'software';
-  const searchQuery = intent.title || q;
+  const searchQuery = intent.title || intent.genre || q.replace(/\b(hindi|english|action|comedy|drama|horror|romance|thriller|movies?|films?|series?|books?|20\d{2}|ka|ki|ke|ko|aur|kaun|dikhao|chahiye)\b/gi, '').replace(/\s+/g, ' ').trim() || q;
 
   const movieP = (async () => {
     if (!wantMovie) return;
@@ -2082,7 +2082,7 @@ async function handleSearch(url, env) {
   const bookP = (async () => {
     if (!wantBook) return;
     try {
-      const bq = (intent.genre && intent.genre !== 'all' && !intent.title ? intent.genre : searchQuery) + (intent.language && intent.language !== 'english' && intent.language !== 'hinglish' ? ' ' + intent.language : '');
+      const bq = searchQuery + (intent.language && intent.language !== 'english' && intent.language !== 'hinglish' ? ' ' + intent.language : '');
       const bResp = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(bq)}&limit=8&fields=key,title,author_name,first_publish_year,cover_i,ia`, { signal: tm });
       const bData = await bResp.json();
       results.books = (bData.docs || []).slice(0, 6).map(b => ({
