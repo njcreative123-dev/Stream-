@@ -1,7 +1,7 @@
 <?php
 header('Content-Type: application/json');
 
-$BOT_TOKEN = '1389903628:AAFapVJGN4EUoGul9gvWrSkT_qM71rwZ_2k';
+$BOT_TOKEN = getenv("TG_BOT_TOKEN") ?: getenv("BOT_TOKEN") ?: ""; // from server env only;
 $CHAT_ID = '-1002514429549';
 
 $input = json_decode(file_get_contents('php://input'), true);

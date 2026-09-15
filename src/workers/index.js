@@ -1,5 +1,5 @@
 // ============================================================
-// NJStream — Cloudflare Worker v9.0
+// NJStream v11 — Cloudflare Worker
 // All-in-One: Live TV, Telegram, AI, Movies, Books, Login, Agent Rooms
 // ============================================================
 import { INDEX_HTML } from '../frontend/html.js';
@@ -28,13 +28,14 @@ function checkRateLimit(ip, path, maxRequests, windowMs) {
   record.count++;
   return true;
 }
-// Clean up old entries periodically
-setInterval(() => {
+// Rate limit store cleanup (called opportunistically inside the fetch handler
+// because Cloudflare Workers disallow timers at global scope)
+function cleanupRateLimits() {
   const now = Date.now();
   for (const [key, record] of rateLimitStore) {
     if (now - record.start > 300000) rateLimitStore.delete(key);
   }
-}, 60000);
+}
 
 function json(d, s = 200) {
   return new Response(JSON.stringify(d), {
@@ -233,6 +234,7 @@ async function authFromRequest(request, env) {
 // ============================================================
 export default {
   async fetch(request, env, ctx) {
+    cleanupRateLimits();
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;

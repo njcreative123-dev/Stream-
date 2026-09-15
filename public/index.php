@@ -279,7 +279,7 @@ foreach ($shown as $m):
 </div>
 
 <script>
-var BOT_TOKEN='1389903628:AAFapVJGN4EUoGul9gvWrSkT_qM71rwZ_2k';
+var BOT_TOKEN = ''; // server-side only; never expose tokens in frontend;
 var tgData=<?=json_encode(array_values($messages))?>;
 var startTime=Date.now();
 
