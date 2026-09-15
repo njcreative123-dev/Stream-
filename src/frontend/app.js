@@ -1,4 +1,5 @@
-
+// NJStream v11 — Consolidated Frontend Application
+export const APP_JS = String.raw`
 (function(){
 'use strict';
 window.NJ=window.NJ||{};
@@ -556,3 +557,4 @@ function init(){
 window.NJ.nav=nav;
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
+`;

@@ -1,4 +1,5 @@
-<!DOCTYPE html>
+// NJStream v11 — SPA Shell (consolidated navigation)
+export const INDEX_HTML = `<!DOCTYPE html>
 <html lang="hi" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -231,4 +232,4 @@
 
 <script src="/js/app.js?v=31"></script>
 </body>
-</html>
+</html>`;

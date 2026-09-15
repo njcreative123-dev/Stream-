@@ -1,4 +1,5 @@
-
+// NJStream v11 — Futuristic Streaming Dashboard (Redesigned)
+export const STYLE_CSS = `
 /* ============================================================
    NJStream v11 — Dark Navy · Electric Cyan · Glassmorphism
    ============================================================ */
@@ -441,3 +442,4 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible){outline:none}
   .main{max-width:1500px;padding-left:24px;padding-right:24px}
   .grid-movies{grid-template-columns:repeat(auto-fill,minmax(185px,1fr))}
 }
+`;
