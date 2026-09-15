@@ -1918,6 +1918,71 @@ async function handleMovieDetail(url, env) {
 
 // ============================================================
 // ============================================================
+// BOOKS — Open Library + curated fallback
+// ============================================================
+async function handleBooks(url, env) {
+  const q = url.searchParams.get('q') || url.searchParams.get('search') || 'hindi';
+  const type = url.searchParams.get('type') || q;
+  const cacheKey = 'books_cache:v4:' + q.toLowerCase();
+  const BOOK_CATEGORIES = {
+    hindi: { query: 'hindi literature', lang: 'Hindi' },
+    english: { query: 'english literature', lang: 'English' },
+    science: { query: 'science popular books', lang: 'English' },
+    technology: { query: 'computer technology programming books', lang: 'English' },
+    fiction: { query: 'fiction novels', lang: 'English' },
+    education: { query: 'education study guide', lang: 'English' },
+    selfhelp: { query: 'self help motivation', lang: 'English' },
+    history: { query: 'history books', lang: 'English' },
+  };
+  const cat = BOOK_CATEGORIES[q.toLowerCase()] || BOOK_CATEGORIES[type.toLowerCase()] || { query: q, lang: '' };
+  try {
+    const cached = await env.KV_STORE.get(cacheKey, { type: 'json' }).catch(() => null);
+    if (cached && cached.results && cached.results.length) return json({ results: cached.results, type, cached: true });
+  } catch (e) {}
+  const FALLBACK = [
+    { key: '/works/OL45883W', title: "Alice's Adventures in Wonderland", author: 'Lewis Carroll', year: 1865, cover: 'https://covers.openlibrary.org/b/id/126424-M.jpg', read_url: 'https://openlibrary.org/works/OL45883W', isbn: '', ia: 'alicesadventures00carr', language: 'English' },
+    { key: '/works/OL20882W', title: 'Great Expectations', author: 'Charles Dickens', year: 1861, cover: 'https://covers.openlibrary.org/b/id/1063921-M.jpg', read_url: 'https://openlibrary.org/works/OL20882W', isbn: '', ia: 'greatexpectation0000dick', language: 'English' },
+    { key: '/works/OL322440W', title: 'Hindi literature', author: 'Ram Awadh Dwivedi', year: 1953, cover: '', read_url: 'https://openlibrary.org/works/OL322440W', isbn: '', language: 'Hindi' },
+    { key: '/works/OL35305228W', title: 'Godaan - Masterpiece of Hindi Literature', author: 'Munshi Premchand', year: 2009, cover: 'https://covers.openlibrary.org/b/id/14470616-M.jpg', read_url: 'https://openlibrary.org/works/OL35305228W', isbn: '9788122310672', language: 'Hindi' },
+    { key: '/works/OL2603830W', title: 'A history of Hindi literature', author: 'F. E. Keay', year: 1920, cover: 'https://covers.openlibrary.org/b/id/5955965-M.jpg', read_url: 'https://openlibrary.org/works/OL2603830W', isbn: '1443732486', language: 'Hindi' },
+    { key: '/works/OL19729306W', title: 'Essential Hindi grammar', author: 'Christine Everaert', year: 2017, cover: '', read_url: 'https://openlibrary.org/works/OL19729306W', isbn: '9780824871857', language: 'Hindi' },
+    { key: '/works/OL68376W', title: 'Gaban', author: 'Munshi Premchand', year: 1931, cover: 'https://covers.openlibrary.org/b/id/7775287-M.jpg', read_url: 'https://openlibrary.org/works/OL68376W', isbn: '', language: 'Hindi' },
+    { key: '/works/OL76508W', title: 'Nirmala', author: 'Munshi Premchand', year: 1925, cover: 'https://covers.openlibrary.org/b/id/7453906-M.jpg', read_url: 'https://openlibrary.org/works/OL76508W', isbn: '', language: 'Hindi' },
+  ];
+  try {
+    const searchQuery = cat.query || q;
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 7000);
+    const resp = await fetch('https://openlibrary.org/search.json?q=' + encodeURIComponent(searchQuery) + '&limit=24&fields=key,title,author_name,first_publish_year,cover_i,isbn,ia,language', { signal: ctrl.signal });
+    clearTimeout(tid);
+    const data = await resp.json();
+    const results = (data.docs || []).map(b => ({
+      key: b.key,
+      title: b.title,
+      author: b.author_name?.[0] || 'Unknown',
+      year: b.first_publish_year,
+      cover: b.cover_i ? 'https://covers.openlibrary.org/b/id/' + b.cover_i + '-M.jpg' : '',
+      read_url: 'https://openlibrary.org' + b.key,
+      isbn: b.isbn?.[0] || '',
+      ia: (b.ia ? (Array.isArray(b.ia) ? b.ia[0] : b.ia) : '') || '',
+      language: cat.lang || (b.language && b.language[0]) || 'English',
+    }));
+    if (results.length) {
+      const READABLE = [
+        { key: '/works/OL45883W', title: "Alice's Adventures in Wonderland", author: 'Lewis Carroll', year: 1865, cover: 'https://covers.openlibrary.org/b/id/126424-M.jpg', read_url: 'https://openlibrary.org/works/OL45883W', isbn: '', ia: 'alicesadventures00carr', language: 'English' },
+        { key: '/works/OL20882W', title: 'Great Expectations', author: 'Charles Dickens', year: 1861, cover: 'https://covers.openlibrary.org/b/id/1063921-M.jpg', read_url: 'https://openlibrary.org/works/OL20882W', isbn: '', ia: 'greatexpectation0000dick', language: 'English' },
+      ];
+      const keys = {}; const merged = [];
+      READABLE.concat(results).forEach(function(x){ if (!keys[x.key]) { keys[x.key] = 1; merged.push(x); } });
+      await env.KV_STORE.put(cacheKey, JSON.stringify({ results: merged, type }), { expirationTtl: 86400 }).catch(() => {});
+      return json({ results: merged, type });
+    }
+  } catch (e) {}
+  await env.KV_STORE.put(cacheKey, JSON.stringify({ results: FALLBACK, type, fallback: true }), { expirationTtl: 86400 }).catch(() => {});
+  return json({ results: FALLBACK, type, fallback: true });
+}
+
+// ============================================================
 // SOFTWARE — safe, verified directory (no malware distribution)
 // ============================================================
 const SOFTWARE_ITEMS = [
