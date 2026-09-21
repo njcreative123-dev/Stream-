@@ -47,7 +47,7 @@ jobs:
 
       - name: Post Comment on Issue/PR
         if: env.REPLY != ''
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -70,7 +70,7 @@ jobs:
 
       - name: Star Thank You on Issue Open
         if: github.event_name == 'issues' && github.event.action == 'opened'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
